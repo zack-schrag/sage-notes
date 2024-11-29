@@ -5,7 +5,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { getToken } from '@/utils/tokenStorage';
-import { listMarkdownFiles, REPOS_DIR } from '@/utils/fileSystem';
+import { listMarkdownFiles, REPOS_DIR, createNewNote } from '@/utils/fileSystem';
 import { Ionicons } from '@expo/vector-icons';
 
 interface NoteCard {
@@ -43,9 +43,16 @@ export default function RecentScreen() {
     loadRecentNotes();
   }, []);
 
-  const handleNewNote = () => {
-    // TODO: Implement new note creation
-    console.log('Create new note');
+  const handleNewNote = async () => {
+    try {
+      const { filePath } = await createNewNote();
+      router.push({
+        pathname: '/(tabs)/notes',
+        params: { filePath }
+      });
+    } catch (error) {
+      console.error('Error creating new note:', error);
+    }
   };
 
   const handleNotePress = (path: string) => {

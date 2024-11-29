@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, SafeAreaView, Pressable } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { FileTree } from '@/components/FileTree';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
-import { getDirectoryStructure } from '@/utils/fileSystem';
+import { getDirectoryStructure, createNewNote } from '@/utils/fileSystem';
 import { getToken } from '@/utils/tokenStorage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 
@@ -12,27 +12,34 @@ export default function FilesScreen() {
   const [fileTree, setFileTree] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadFiles = async () => {
-      try {
-        setIsLoading(true);
-        const token = await getToken();
-        if (!token) {
-          router.replace('/(tabs)/');
-          return;
-        }
-
-        const structure = await getDirectoryStructure();
-        setFileTree(structure);
-      } catch (error) {
-        console.error('Error loading files:', error);
-      } finally {
-        setIsLoading(false);
+  const loadFiles = async () => {
+    try {
+      setIsLoading(true);
+      const token = await getToken();
+      if (!token) {
+        router.replace('/(tabs)/');
+        return;
       }
-    };
 
+      const structure = await getDirectoryStructure();
+      setFileTree(structure);
+    } catch (error) {
+      console.error('Error loading files:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadFiles();
   }, []);
+
+  // Refresh files when the screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadFiles();
+    }, [])
+  );
 
   const handleFilePress = (path: string) => {
     router.push({
@@ -41,9 +48,18 @@ export default function FilesScreen() {
     });
   };
 
-  const handleNewNote = () => {
-    // TODO: Implement new note creation
-    console.log('Create new note');
+  const handleNewNote = async () => {
+    try {
+      const { filePath } = await createNewNote();
+      // Refresh the file tree
+      await loadFiles();
+      router.push({
+        pathname: '/(tabs)/notes',
+        params: { filePath }
+      });
+    } catch (error) {
+      console.error('Error creating new note:', error);
+    }
   };
 
   return (

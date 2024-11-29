@@ -67,6 +67,7 @@ export async function getFileMetadata(filePath: string): Promise<GitHubFileInfo 
 }
 
 export function formatDate(dateString: string): string {
+  console.log(dateString);
   const date = new Date(dateString);
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
@@ -86,3 +87,5 @@ export function formatDate(dateString: string): string {
     return date.toLocaleDateString();
   }
 }
+
+export { getToken };

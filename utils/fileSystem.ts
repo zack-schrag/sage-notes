@@ -239,3 +239,57 @@ export async function saveFile(path: string, content: string): Promise<boolean> 
     return false;
   }
 }
+
+export async function ensureNotesDirectoryExists() {
+    const notesDir = `${REPOS_DIR}${REPO_NAME}/notes`;
+    const dirInfo = await FileSystem.getInfoAsync(notesDir);
+    if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(notesDir, { intermediates: true });
+    }
+    return notesDir;
+}
+
+export async function ensureRepoExists() {
+    const repoDir = `${REPOS_DIR}${REPO_NAME}`;
+    const dirInfo = await FileSystem.getInfoAsync(repoDir);
+    if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(repoDir, { intermediates: true });
+    }
+    return repoDir;
+}
+
+export async function createNewNote(): Promise<{ filePath: string; filename: string }> {
+    const baseDir = await ensureRepoExists();
+    
+    // Find an available filename
+    let counter = 0;
+    let filename = 'untitled.md';
+    let filePath = `${baseDir}/${filename}`;
+    
+    // Keep incrementing counter until we find an unused filename
+    while (true) {
+        const fileInfo = await FileSystem.getInfoAsync(filePath);
+        if (!fileInfo.exists) {
+            break;
+        }
+        counter++;
+        filename = counter === 0 ? 'untitled.md' : `untitled_${counter}.md`;
+        filePath = `${baseDir}/${filename}`;
+    }
+    
+    const initialContent = '# New Note\n\nStart writing here...\n';
+    await FileSystem.writeAsStringAsync(filePath, initialContent);
+    return { filePath, filename };
+}
+
+export async function deleteFile(path: string, sha?: string): Promise<boolean> {
+    try {
+        // Delete locally
+        await FileSystem.deleteAsync(path, { idempotent: true });
+        console.log('Successfully deleted file locally:', path);
+        return true;
+    } catch (error) {
+        console.error('Error deleting file:', error);
+        throw error;
+    }
+}

@@ -1,19 +1,25 @@
-import { StyleSheet, Platform, TextInput, View, useWindowDimensions, Pressable, Text, Linking } from 'react-native';
-import React, { useState, useEffect, useCallback } from 'react';
-import { SafeAreaView, ScrollView, StatusBar } from 'react-native';
+import { Pressable, Text, TextInput, View, SafeAreaView, StyleSheet, Platform, Linking, AppState } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ScrollView, StatusBar } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { useLocalSearchParams } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
+import { useWindowDimensions } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
+
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { saveFile } from '@/utils/fileSystem';
-import { getFileMetadata, formatDate } from '@/utils/githubApi';
+import { ensureRepoExists, saveFile, getDirectoryStructure } from '@/utils/fileSystem';
+import { getToken, formatDate } from '@/utils/githubApi';
 import { parseMarkdown, addTagToMarkdown, removeTagFromMarkdown } from '@/utils/markdownParser';
 import { AddTagModal } from '@/components/AddTagModal';
-import { scheduleCommit, isActivelyCommitting } from '@/utils/githubSync';
+import { scheduleCommit, isActivelyCommitting, commitAllPendingChanges, commitFile, getRelativePath, deleteFile } from '@/utils/githubSync';
 import { SyncIndicator } from '@/components/SyncIndicator';
 
+const REPO_OWNER = 'zack-schrag';
+const REPO_NAME = 'notes';
 const initialMarkdown = `# Welcome to Your Markdown Editor
 
 Start typing here to create your notes...
@@ -27,14 +33,17 @@ Start typing here to create your notes...
 
 interface FileMetadata {
     filename: string;
-    created: string;
-    lastUpdated: string;
-    htmlUrl: string;
     tags: string[];
+    created?: string;
+    lastUpdated?: string;
+    htmlUrl?: string;
+    sha?: string;
+    url?: string;
 }
 
 export default function NotesScreen() {
     const { filePath } = useLocalSearchParams<{ filePath: string }>();
+    const router = useRouter();
     const [markdownText, setMarkdownText] = useState(initialMarkdown);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -48,45 +57,100 @@ export default function NotesScreen() {
         htmlUrl: "",
         tags: []
     });
+    const [isEditingFilename, setIsEditingFilename] = useState(false);
+    const [editedFilename, setEditedFilename] = useState('');
+    const [isRenamingSaving, setIsRenamingSaving] = useState(false);
+    const [renameTimeout, setRenameTimeout] = useState<NodeJS.Timeout | null>(null);
+    const [selectionStart, setSelectionStart] = useState(0);
     const { width } = useWindowDimensions();
+
+    const parseFilePath = (path: string) => {
+        const filename = path.split('/').pop() || 'Untitled.md';
+        return { filename };
+    };
 
     // Load file contents and metadata
     useEffect(() => {
         const loadFile = async () => {
-            if (filePath) {
-                try {
-                    // Load file content
-                    const content = await FileSystem.readAsStringAsync(filePath);
-                    const { frontmatter, content: markdownContent } = parseMarkdown(content);
-                    setMarkdownText(markdownContent); // Only set the content without frontmatter
-                    
-                    // Set initial metadata with local filename and tags
-                    setMetadata(prev => ({
-                        ...prev,
-                        filename: filePath.split('/').pop() || "Untitled",
-                        tags: frontmatter.tags || []
-                    }));
-                    
-                    // Get relative path for GitHub API
-                    const repoPath = filePath.split('/repos/notes/')[1];
-                    if (repoPath) {
-                        // Fetch GitHub metadata in background
-                        const githubMetadata = await getFileMetadata(repoPath);
-                        if (githubMetadata) {
-                            setMetadata(prev => ({
-                                ...prev,
-                                created: formatDate(githubMetadata.created_at),
-                                lastUpdated: formatDate(githubMetadata.updated_at),
-                                htmlUrl: githubMetadata.html_url,
-                            }));
+            if (!filePath) return;
+
+            try {
+                const content = await FileSystem.readAsStringAsync(filePath);
+                const { frontmatter, content: markdownContent } = parseMarkdown(content);
+                const { filename } = parseFilePath(filePath);
+
+                // Fetch GitHub metadata for the file
+                const token = await getToken();
+                if (token) {
+                    try {
+                        const relativePath = getRelativePath(filePath);
+                        
+                        // First get the file metadata
+                        const fileUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${relativePath}`;
+                        const fileResponse = await fetch(fileUrl, {
+                            headers: {
+                                Authorization: `token ${token}`,
+                                Accept: 'application/vnd.github.v3+json',
+                            }
+                        });
+
+                        if (fileResponse.ok) {
+                            const fileData = await fileResponse.json();
+                            console.log('Fetched GitHub file metadata:', fileData);
+
+                            // Fetch first and last commits in parallel
+                            const headers = {
+                                Authorization: `token ${token}`,
+                                Accept: 'application/vnd.github.v3+json',
+                            };
+
+                            // Get the latest commit
+                            const latestCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
+                            const latestCommitPromise = fetch(latestCommitUrl, { headers })
+                                .then(res => res.json())
+                                .then(commits => commits[0]?.commit?.committer?.date);
+
+                            // Get the first commit (reverse chronological order)
+                            const firstCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1&page=last`;
+                            const firstCommitPromise = fetch(firstCommitUrl, { headers })
+                                .then(res => res.json())
+                                .then(commits => commits[0]?.commit?.committer?.date);
+
+                            // Wait for both commits to be fetched
+                            const [lastUpdated, created] = await Promise.all([
+                                latestCommitPromise,
+                                firstCommitPromise
+                            ]);
+
+                            console.log('Commit dates:', { created, lastUpdated });
+
+                            if (created && lastUpdated) {
+                                setMetadata(prev => ({
+                                    ...prev,
+                                    sha: fileData.sha,
+                                    url: fileData.url,
+                                    htmlUrl: fileData.html_url,
+                                    created: formatDate(created),
+                                    lastUpdated: formatDate(lastUpdated),
+                                }));
+                            }
                         }
+                    } catch (error) {
+                        console.error('Error fetching GitHub metadata:', error);
                     }
-                } catch (error) {
-                    console.error('Error loading file:', error);
                 }
+
+                setMarkdownText(markdownContent); 
+                setMetadata(prev => ({
+                    ...prev,
+                    filename,
+                    tags: frontmatter.tags || []
+                }));
+            } catch (error) {
+                console.error('Error loading file:', error);
             }
         };
-        
+
         loadFile();
     }, [filePath]);
 
@@ -103,7 +167,22 @@ export default function NotesScreen() {
         };
     }, [filePath]);
 
-    // Auto-save functionality
+    // Handle app state changes
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'background' || nextAppState === 'inactive') {
+                // Commit any pending changes before the app goes to background
+                commitAllPendingChanges().catch(console.error);
+            }
+        });
+
+        return () => {
+            subscription.remove();
+            // Also commit changes when unmounting the component
+            commitAllPendingChanges().catch(console.error);
+        };
+    }, []);
+
     const debouncedSave = useCallback(async (text: string) => {
         if (!filePath) return;
 
@@ -125,16 +204,16 @@ export default function NotesScreen() {
 
     const handleTextChange = useCallback((text: string) => {
         setMarkdownText(text);
-        
+
         if (saveTimeout) {
             clearTimeout(saveTimeout);
         }
-        
+
         const timeout = setTimeout(async () => {
             try {
                 // First save locally
                 await debouncedSave(text);
-                
+
                 // Schedule commit
                 if (filePath) {
                     // Reconstruct the full content with frontmatter
@@ -142,7 +221,7 @@ export default function NotesScreen() {
                         tags: metadata.tags
                     };
                     const fullContent = `---\ntags: [${frontmatter.tags.join(', ')}]\n---\n${text}`;
-                    
+
                     // Schedule the commit (will execute after delay)
                     scheduleCommit(filePath, fullContent);
                 }
@@ -150,7 +229,7 @@ export default function NotesScreen() {
                 console.error('Error in auto-save:', error);
             }
         }, 1000);
-        
+
         setSaveTimeout(timeout);
     }, [saveTimeout, debouncedSave, filePath, metadata.tags]);
 
@@ -160,7 +239,7 @@ export default function NotesScreen() {
             ...prev,
             tags: updatedTags
         }));
-        
+
         // Save the updated tags
         const fullContent = `---\ntags: [${updatedTags.join(', ')}]\n---\n${markdownText}`;
         debouncedSave(fullContent);
@@ -172,40 +251,166 @@ export default function NotesScreen() {
             ...prev,
             tags: updatedTags
         }));
-        
+
         // Save the updated tags
         const fullContent = `---\ntags: [${updatedTags.join(', ')}]\n---\n${markdownText}`;
         debouncedSave(fullContent);
     }, [markdownText, metadata.tags, debouncedSave]);
 
-    // Cleanup timeout on unmount
-    useEffect(() => {
-        return () => {
-            if (saveTimeout) {
-                clearTimeout(saveTimeout);
+    const handleStartEditingFilename = () => {
+        // Remove the .md extension for editing
+        const nameWithoutExt = metadata.filename.replace(/\.md$/, '');
+        setEditedFilename(nameWithoutExt);
+        setIsEditingFilename(true);
+    };
+
+    const handleFilenameChange = (newName: string) => {
+        setEditedFilename(newName);
+    };
+
+    const handleSelectionChange = (event: any) => {
+        setSelectionStart(event.nativeEvent.selection.start);
+    };
+
+    const handleSaveFilename = async () => {
+        if (!filePath || !editedFilename || editedFilename + '.md' === metadata.filename) {
+            setIsEditingFilename(false);
+            return;
+        }
+
+        const finalFilename = editedFilename + '.md';
+
+        try {
+            setIsRenamingSaving(true);
+            const oldPath = filePath;
+            const baseDir = await ensureRepoExists();
+            const newPath = `${baseDir}/${finalFilename}`;
+
+            // Move the file locally
+            await FileSystem.moveAsync({
+                from: oldPath,
+                to: newPath
+            });
+
+            // Update the filePath in the URL params to match the new path
+            router.replace({
+                pathname: '/(tabs)/notes',
+                params: { filePath: newPath }
+            });
+
+            // Get the content before committing
+            const content = await FileSystem.readAsStringAsync(newPath);
+
+            // Only try to delete the old file from GitHub if we have its SHA
+            // (meaning it exists in GitHub)
+            if (metadata.sha) {
+                await commitFile({ 
+                    path: newPath, 
+                    content, 
+                    oldPath,
+                    oldFileSha: metadata.sha,
+                    message: `Rename ${metadata.filename} to ${finalFilename}` 
+                });
+            } else {
+                // File doesn't exist in GitHub yet, just commit the new file
+                await commitFile({ 
+                    path: newPath, 
+                    content,
+                    message: `Create ${finalFilename}` 
+                });
             }
-        };
-    }, [saveTimeout]);
+
+            // Trigger a file tree refresh
+            await getDirectoryStructure();
+
+            setMetadata(prev => ({ ...prev, filename: finalFilename }));
+            setIsEditingFilename(false);
+        } catch (error) {
+            console.error('Error renaming file:', error);
+            // Try to move the file back if there was an error
+            try {
+                await FileSystem.moveAsync({
+                    from: newPath,
+                    to: oldPath
+                });
+                console.log('Rolled back file rename after error');
+            } catch (rollbackError) {
+                console.error('Error rolling back file rename:', rollbackError);
+            }
+        } finally {
+            setIsRenamingSaving(false);
+        }
+    };
+
+    const handleDeleteNote = useCallback(async () => {
+        if (!filePath) return;
+
+        try {
+            // Delete from GitHub first if the file exists there
+            if (metadata.sha) {
+                await deleteFile(filePath, metadata.sha);
+            }
+
+            // Then delete locally
+            await FileSystem.deleteAsync(filePath);
+
+            // Navigate back to the notes list
+            router.replace('/(tabs)');
+        } catch (error) {
+            console.error('Error deleting note:', error);
+        }
+    }, [filePath, metadata.sha, router]);
 
     const handleOpenInGitHub = () => {
         if (metadata.htmlUrl) {
             Linking.openURL(metadata.htmlUrl);
         }
     };
-    
+
     const MetadataHeader = () => (
         <View style={styles.metadataContainer}>
             <SafeAreaView style={styles.metadataContent}>
                 <View style={styles.filenameContainer}>
-                    <Text style={styles.filename}>{metadata.filename}</Text>
-                    <View style={styles.fileActions}>
+                    <View style={styles.filenameSection}>
+                        <View style={styles.filenameInputContainer}>
+                            {isEditingFilename ? (
+                                <>
+                                    <TextInput
+                                        value={editedFilename}
+                                        onChangeText={handleFilenameChange}
+                                        onBlur={handleSaveFilename}
+                                        onSubmitEditing={handleSaveFilename}
+                                        blurOnSubmit={true}
+                                        onSelectionChange={handleSelectionChange}
+                                        selection={{ start: selectionStart, end: selectionStart }}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        autoFocus
+                                        style={[styles.filename, styles.filenameInput]}
+                                    />
+                                    <Text style={[styles.filename, styles.extensionText]}>.md</Text>
+                                </>
+                            ) : (
+                                <Pressable onPress={handleStartEditingFilename}>
+                                    <Text style={styles.filename}>{metadata.filename}</Text>
+                                </Pressable>
+                            )}
+                            {isRenamingSaving && (
+                                <Text style={styles.savingIndicator}>Saving...</Text>
+                            )}
+                        </View>
                         {metadata.htmlUrl && (
-                            <Pressable onPress={handleOpenInGitHub} style={styles.githubLink}>
+                            <Pressable onPress={handleOpenInGitHub} style={styles.githubButton}>
                                 <Ionicons name="logo-github" size={20} color="#666" />
                             </Pressable>
                         )}
-                        <SyncIndicator isVisible={isCommitting} />
                     </View>
+                    <Pressable 
+                        onPress={handleDeleteNote}
+                        style={styles.deleteButton}
+                    >
+                        <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                    </Pressable>
                 </View>
                 <View style={styles.dateSection}>
                     <View style={styles.dateItem}>
@@ -240,7 +445,19 @@ export default function NotesScreen() {
             </SafeAreaView>
         </View>
     );
-    
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            if (renameTimeout) {
+                clearTimeout(renameTimeout);
+            }
+        };
+    }, [saveTimeout, renameTimeout]);
+
     return (
         <>
             <ParallaxScrollView
@@ -307,13 +524,54 @@ const styles = StyleSheet.create({
     filenameContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 6
+        justifyContent: 'space-between',
+        width: '100%',
+    },
+    filenameSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     filename: {
         fontSize: 20,
         fontWeight: '600',
         color: '#e0e0e0',
         paddingLeft: 30
+    },
+    filenameInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    filenameInput: {
+        color: '#e0e0e0',
+        fontSize: 20,
+        fontWeight: '600',
+        minWidth: 100,
+        padding: 0,
+        margin: 0,
+        borderBottomWidth: 1,
+        borderBottomColor: '#666',
+    },
+    extensionText: {
+        color: '#888',
+        marginLeft: -4, // Tighten up the spacing between filename and extension
+    },
+    githubButton: {
+        padding: 4,
+        marginLeft: 4,
+    },
+    deleteButton: {
+        padding: 8,
+        marginRight: 20,
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 8,
+    },
+    iconButton: {
+        padding: 8,
+        marginLeft: 4,
     },
     fileActions: {
         flexDirection: 'row',
@@ -425,6 +683,10 @@ const styles = StyleSheet.create({
     },
     addTagText: {
         color: '#0A84FF',
+        fontSize: 14,
+    },
+    savingIndicator: {
+        color: '#666',
         fontSize: 14,
     },
 });

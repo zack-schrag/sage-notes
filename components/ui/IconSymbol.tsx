@@ -13,6 +13,7 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'github': 'code',  // Using 'code' as a fallback since MaterialIcons doesn't have a GitHub icon
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],
