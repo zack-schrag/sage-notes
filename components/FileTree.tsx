@@ -95,6 +95,8 @@ export const FileTree: React.FC<FileTreeProps> = ({ data, onFilePress }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingHorizontal: 30,
+    paddingTop: 10,
   },
   nodeContainer: {
     width: '100%',
@@ -102,17 +104,21 @@ const styles = StyleSheet.create({
   nodeContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingRight: 16,
+    paddingVertical: 12,
   },
   childrenContainer: {
     width: '100%',
+    marginLeft: 32,
   },
   icon: {
-    marginRight: 8,
+    marginRight: 12,
     width: 20,
+    opacity: 0.6,
   },
   nodeName: {
     flex: 1,
+    fontSize: 15,
+    color: '#e0e0e0',
+    fontWeight: '400',
   },
 });

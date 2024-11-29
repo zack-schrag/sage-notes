@@ -11,7 +11,8 @@ import { saveFile } from '@/utils/fileSystem';
 import { getFileMetadata, formatDate } from '@/utils/githubApi';
 import { parseMarkdown, addTagToMarkdown, removeTagFromMarkdown } from '@/utils/markdownParser';
 import { AddTagModal } from '@/components/AddTagModal';
-import { scheduleCommit, hasPendingChanges } from '@/utils/githubSync';
+import { scheduleCommit, isActivelyCommitting } from '@/utils/githubSync';
+import { SyncIndicator } from '@/components/SyncIndicator';
 
 const initialMarkdown = `# Welcome to Your Markdown Editor
 
@@ -37,11 +38,11 @@ export default function NotesScreen() {
     const [markdownText, setMarkdownText] = useState(initialMarkdown);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [hasUncommittedChanges, setHasUncommittedChanges] = useState(false);
+    const [isCommitting, setIsCommitting] = useState(false);
     const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
     const [isAddTagModalVisible, setIsAddTagModalVisible] = useState(false);
     const [metadata, setMetadata] = useState<FileMetadata>({
-        filename: "New Note",
+        filename: filePath ? filePath.split('/').pop() || "New Note" : "New Note",
         created: "Just now",
         lastUpdated: "Just now",
         htmlUrl: "",
@@ -57,21 +58,27 @@ export default function NotesScreen() {
                     // Load file content
                     const content = await FileSystem.readAsStringAsync(filePath);
                     const { frontmatter, content: markdownContent } = parseMarkdown(content);
-                    setMarkdownText(content);
+                    setMarkdownText(markdownContent); // Only set the content without frontmatter
+                    
+                    // Set initial metadata with local filename and tags
+                    setMetadata(prev => ({
+                        ...prev,
+                        filename: filePath.split('/').pop() || "Untitled",
+                        tags: frontmatter.tags || []
+                    }));
                     
                     // Get relative path for GitHub API
                     const repoPath = filePath.split('/repos/notes/')[1];
                     if (repoPath) {
-                        // Fetch GitHub metadata
+                        // Fetch GitHub metadata in background
                         const githubMetadata = await getFileMetadata(repoPath);
                         if (githubMetadata) {
-                            setMetadata({
-                                filename: githubMetadata.name,
+                            setMetadata(prev => ({
+                                ...prev,
                                 created: formatDate(githubMetadata.created_at),
                                 lastUpdated: formatDate(githubMetadata.updated_at),
                                 htmlUrl: githubMetadata.html_url,
-                                tags: frontmatter.tags || []
-                            });
+                            }));
                         }
                     }
                 } catch (error) {
@@ -81,6 +88,19 @@ export default function NotesScreen() {
         };
         
         loadFile();
+    }, [filePath]);
+
+    // Monitor actual commit status
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (filePath) {
+            interval = setInterval(() => {
+                setIsCommitting(isActivelyCommitting(filePath));
+            }, 100);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
     }, [filePath]);
 
     // Auto-save functionality
@@ -93,71 +113,70 @@ export default function NotesScreen() {
             if (success) {
                 setMetadata(prev => ({
                     ...prev,
-                    lastUpdated: "Just now"
+                    lastUpdated: 'Just now'
                 }));
             }
         } catch (error) {
-            console.error('Error auto-saving:', error);
+            console.error('Error saving file:', error);
         } finally {
             setIsSaving(false);
         }
     }, [filePath]);
 
-    const handleTextChange = (text: string) => {
+    const handleTextChange = useCallback((text: string) => {
         setMarkdownText(text);
-        setIsSaving(true);
         
-        // Clear existing timeout
         if (saveTimeout) {
             clearTimeout(saveTimeout);
         }
         
-        // Set new timeout for auto-save
         const timeout = setTimeout(async () => {
-            if (filePath) {
-                try {
-                    await saveFile(filePath, text);
-                    // Schedule commit after successful save
-                    scheduleCommit(filePath, text);
-                    setHasUncommittedChanges(true);
-                    // Check every second if changes are still pending
-                    const checkInterval = setInterval(() => {
-                        if (!hasPendingChanges(filePath)) {
-                            setHasUncommittedChanges(false);
-                            clearInterval(checkInterval);
-                        }
-                    }, 1000);
-                } catch (error) {
-                    console.error('Error saving file:', error);
+            try {
+                // First save locally
+                await debouncedSave(text);
+                
+                // Schedule commit
+                if (filePath) {
+                    // Reconstruct the full content with frontmatter
+                    const frontmatter = {
+                        tags: metadata.tags
+                    };
+                    const fullContent = `---\ntags: [${frontmatter.tags.join(', ')}]\n---\n${text}`;
+                    
+                    // Schedule the commit (will execute after delay)
+                    scheduleCommit(filePath, fullContent);
                 }
+            } catch (error) {
+                console.error('Error in auto-save:', error);
             }
-            setIsSaving(false);
-        }, 5000);
+        }, 1000);
         
         setSaveTimeout(timeout);
-    };
+    }, [saveTimeout, debouncedSave, filePath, metadata.tags]);
 
     const handleAddTag = useCallback((newTag: string) => {
-        const updatedMarkdown = addTagToMarkdown(markdownText, newTag);
-        setMarkdownText(updatedMarkdown);
+        const updatedTags = [...metadata.tags, newTag];
         setMetadata(prev => ({
             ...prev,
-            tags: [...prev.tags, newTag]
+            tags: updatedTags
         }));
-        // Trigger save
-        debouncedSave(updatedMarkdown);
-    }, [markdownText, debouncedSave]);
+        
+        // Save the updated tags
+        const fullContent = `---\ntags: [${updatedTags.join(', ')}]\n---\n${markdownText}`;
+        debouncedSave(fullContent);
+    }, [markdownText, metadata.tags, debouncedSave]);
 
     const handleRemoveTag = useCallback((tagToRemove: string) => {
-        const updatedMarkdown = removeTagFromMarkdown(markdownText, tagToRemove);
-        setMarkdownText(updatedMarkdown);
+        const updatedTags = metadata.tags.filter(tag => tag !== tagToRemove);
         setMetadata(prev => ({
             ...prev,
-            tags: prev.tags.filter(tag => tag !== tagToRemove)
+            tags: updatedTags
         }));
-        // Trigger save
-        debouncedSave(updatedMarkdown);
-    }, [markdownText, debouncedSave]);
+        
+        // Save the updated tags
+        const fullContent = `---\ntags: [${updatedTags.join(', ')}]\n---\n${markdownText}`;
+        debouncedSave(fullContent);
+    }, [markdownText, metadata.tags, debouncedSave]);
 
     // Cleanup timeout on unmount
     useEffect(() => {
@@ -180,17 +199,12 @@ export default function NotesScreen() {
                 <View style={styles.filenameContainer}>
                     <Text style={styles.filename}>{metadata.filename}</Text>
                     <View style={styles.fileActions}>
-                        {hasUncommittedChanges && (
-                            <Text style={styles.pendingText}>Committing...</Text>
-                        )}
-                        {isSaving && (
-                            <Text style={styles.savingText}>Saving...</Text>
-                        )}
                         {metadata.htmlUrl && (
                             <Pressable onPress={handleOpenInGitHub} style={styles.githubLink}>
                                 <Ionicons name="logo-github" size={20} color="#666" />
                             </Pressable>
                         )}
+                        <SyncIndicator isVisible={isCommitting} />
                     </View>
                 </View>
                 <View style={styles.dateSection}>
@@ -371,7 +385,7 @@ const styles = StyleSheet.create({
     },
     textInput: {
         flex: 1,
-        padding: 20,
+        padding: 5,
         fontSize: 16,
         lineHeight: 24,
         color: '#fff',
@@ -379,11 +393,11 @@ const styles = StyleSheet.create({
     },
     previewContainer: {
         flex: 1,
-        padding: 20,
+        padding: 5,
         minHeight: '100%',
     },
     tagsSection: {
-        paddingHorizontal: 20,
+        paddingHorizontal: 30,
         paddingVertical: 4,
     },
     tagsContainer: {

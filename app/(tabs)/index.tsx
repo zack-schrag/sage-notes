@@ -1,258 +1,163 @@
-import { Image, StyleSheet, Platform, Pressable, Text, View, TextInput } from 'react-native';
-import React from 'react';
-
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, SafeAreaView, Pressable, ScrollView } from 'react-native';
+import { router } from 'expo-router';
 import { ThemedView } from '@/components/ThemedView';
-import { cloneRepository, listMarkdownFiles, removeRepository } from '@/utils/fileSystem';
-import { saveToken, getToken, removeToken } from '@/utils/tokenStorage';
+import { ThemedText } from '@/components/ThemedText';
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { getToken } from '@/utils/tokenStorage';
+import { listMarkdownFiles, REPOS_DIR } from '@/utils/fileSystem';
+import { Ionicons } from '@expo/vector-icons';
 
-export default function HomeScreen() {
-  const [isCloning, setIsCloning] = React.useState(false);
-  const [isRemoving, setIsRemoving] = React.useState(false);
-  const [files, setFiles] = React.useState<string[]>([]);
-  const [githubToken, setGithubToken] = React.useState('');
-  const [showToken, setShowToken] = React.useState(false);
+interface NoteCard {
+  title: string;
+  path: string;
+}
 
-  // Load token on component mount
-  React.useEffect(() => {
-    const loadToken = async () => {
-      const savedToken = await getToken();
-      if (savedToken) {
-        setGithubToken(savedToken);
+export default function RecentScreen() {
+  const [recentNotes, setRecentNotes] = useState<NoteCard[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadRecentNotes = async () => {
+      try {
+        setIsLoading(true);
+        const token = await getToken();
+        if (!token) {
+          router.replace('/(tabs)/');
+          return;
+        }
+
+        const files = await listMarkdownFiles();
+        const notes = files.slice(0, 10).map(path => ({
+          title: path.split('/').pop() || 'Untitled.md',
+          path: `${REPOS_DIR}notes/${path}`,
+        }));
+        setRecentNotes(notes);
+      } catch (error) {
+        console.error('Error loading recent notes:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
-    loadToken();
+
+    loadRecentNotes();
   }, []);
 
-  const handleCloneRepo = async () => {
-    if (!githubToken.trim()) {
-      alert('Please enter your GitHub token');
-      return;
-    }
-
-    try {
-      setIsCloning(true);
-      // Save token before cloning
-      await saveToken(githubToken);
-      const success = await cloneRepository(githubToken);
-      if (success) {
-        console.log('Repository setup completed successfully');
-        // List files after successful clone
-        const markdownFiles = await listMarkdownFiles();
-        setFiles(markdownFiles);
-      } else {
-        console.log('Repository setup failed');
-      }
-    } catch (error) {
-      console.error('Error in handleCloneRepo:', error);
-    } finally {
-      setIsCloning(false);
-    }
+  const handleNewNote = () => {
+    // TODO: Implement new note creation
+    console.log('Create new note');
   };
 
-  const handleRemoveRepo = async () => {
-    try {
-      setIsRemoving(true);
-      const success = await removeRepository();
-      if (success) {
-        setFiles([]);
-        // Also remove the token when removing the repository
-        await removeToken();
-        setGithubToken('');
-      }
-    } catch (error) {
-      console.error('Error in handleRemoveRepo:', error);
-    } finally {
-      setIsRemoving(false);
-    }
+  const handleNotePress = (path: string) => {
+    router.push({
+      pathname: '/(tabs)/notes',
+      params: { filePath: path }
+    });
   };
-
-  // Check for files on component mount
-  React.useEffect(() => {
-    const checkFiles = async () => {
-      const markdownFiles = await listMarkdownFiles();
-      setFiles(markdownFiles);
-    };
-    checkFiles();
-  }, []);
 
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerHeight={300}
-      isHeaderFixed={false}
-      headerImage={<HelloWave />}>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Foo!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Repository Setup</ThemedText>
-        
-        <View style={styles.inputContainer}>
-          <ThemedText type="defaultSemiBold">GitHub Token</ThemedText>
-          <TextInput
-            style={styles.input}
-            value={githubToken}
-            onChangeText={setGithubToken}
-            placeholder="Enter your GitHub token"
-            placeholderTextColor="#666"
-            secureTextEntry={!showToken}
-          />
-          <Pressable
-            onPress={() => setShowToken(!showToken)}
-            style={styles.showHideButton}
-          >
-            <Text style={styles.showHideButtonText}>
-              {showToken ? 'Hide' : 'Show'}
-            </Text>
-          </Pressable>
-        </View>
+    <SafeAreaView style={styles.safeArea}>
+      <ThemedView style={styles.container}>
+        <ScrollView style={styles.scrollView}>
+          {isLoading ? (
+            <ThemedText style={styles.loadingText}>Loading notes...</ThemedText>
+          ) : recentNotes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <ThemedText style={styles.emptyStateText}>No notes yet</ThemedText>
+            </View>
+          ) : (
+            <View style={styles.notesContainer}>
+              {recentNotes.map((note) => (
+                <Pressable
+                  key={note.path}
+                  style={styles.noteCard}
+                  onPress={() => handleNotePress(note.path)}
+                >
+                  <Ionicons
+                    name="document-text-outline"
+                    size={20}
+                    color="#666"
+                    style={styles.icon}
+                  />
+                  <ThemedText style={styles.noteTitle}>{note.title}</ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </ScrollView>
 
-        <View style={styles.buttonContainer}>
-          <Pressable 
-            style={[styles.button, isCloning && styles.buttonDisabled]}
-            onPress={handleCloneRepo}
-            disabled={isCloning || isRemoving}
-          >
-            <Text style={styles.buttonText}>
-              {isCloning ? 'Cloning...' : 'Clone Repository'}
-            </Text>
-          </Pressable>
-          
-          <Pressable 
-            style={[styles.button, styles.removeButton, isRemoving && styles.buttonDisabled]}
-            onPress={handleRemoveRepo}
-            disabled={isCloning || isRemoving}
-          >
-            <Text style={styles.buttonText}>
-              {isRemoving ? 'Removing...' : 'Remove Repository'}
-            </Text>
-          </Pressable>
-        </View>
-
-        {files.length > 0 && (
-          <View style={styles.filesContainer}>
-            <ThemedText type="defaultSemiBold" style={styles.filesTitle}>
-              Found {files.length} markdown files:
-            </ThemedText>
-            {files.map((file, index) => (
-              <ThemedText key={index} style={styles.fileName}>
-                • {file}
-              </ThemedText>
-            ))}
-          </View>
-        )}
+        <Pressable onPress={handleNewNote} style={styles.newButton}>
+          <IconSymbol name="plus" size={22} color="#e0e0e0" />
+        </Pressable>
       </ThemedView>
-    </ParallaxScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+  },
+  container: {
+    flex: 1,
+    paddingTop: 20,
+    paddingBottom: 100,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  notesContainer: {
+    flex: 1,
+    paddingHorizontal: 30,
+  },
+  noteCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    paddingVertical: 12,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  icon: {
+    marginRight: 12,
+    width: 20,
+    opacity: 0.6,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  noteTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '400',
+    color: '#e0e0e0',
   },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    marginTop: 10,
+  loadingText: {
+    paddingHorizontal: 30,
+    paddingTop: 20,
+    color: '#888',
   },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 10,
-    width: '45%',
+  emptyState: {
+    flex: 1,
     alignItems: 'center',
+    paddingTop: 40,
   },
-  buttonDisabled: {
-    backgroundColor: '#666',
+  emptyStateText: {
+    color: '#888',
+    fontSize: 15,
   },
-  removeButton: {
-    backgroundColor: '#FF3B30',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  filesContainer: {
-    marginTop: 20,
-    width: '100%',
-    padding: 10,
-  },
-  filesTitle: {
-    marginBottom: 10,
-  },
-  fileName: {
-    marginLeft: 10,
-    marginBottom: 5,
-  },
-  inputContainer: {
-    width: '100%',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  input: {
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-    color: '#000',
-  },
-  showHideButton: {
+  newButton: {
     position: 'absolute',
     right: 30,
-    top: 45,
-    padding: 8,
-  },
-  showHideButtonText: {
-    color: '#007AFF',
+    bottom: 100,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(45, 45, 45, 0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
   },
 });
