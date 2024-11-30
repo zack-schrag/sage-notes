@@ -140,7 +140,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
           <Ionicons
             name="document-text-outline"
             size={20}
-            color="#666"
+            color="#87A987"
             style={styles.icon}
           />
         )}

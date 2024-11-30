@@ -496,8 +496,8 @@ export default function NotesScreen() {
                         onPress={() => setIsAddTagModalVisible(true)} 
                         style={styles.addTagButton}
                     >
-                        <Ionicons name="add-circle-outline" size={16} color="#0A84FF" />
-                        <Text style={styles.addTagText}>Add tag</Text>
+                        <Ionicons name="add-circle-outline" size={16} color="#87A987" />
+                        <Text style={[styles.addTagText, { color: '#87A987' }]}>Add tag</Text>
                     </Pressable>
                 </View>
             </SafeAreaView>
@@ -551,7 +551,7 @@ export default function NotesScreen() {
             >
                 <IconSymbol
                     size={24}
-                    color="#007AFF"
+                    color="#87A987"
                     name={isPreviewMode ? "pencil" : "eye"}
                 />
             </Pressable>

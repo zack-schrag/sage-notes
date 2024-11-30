@@ -204,7 +204,7 @@ export default function FilesScreen() {
                     refreshing={isSyncing}
                     onRefresh={handleSync}
                     tintColor="#666"
-                    colors={["#0A84FF"]}
+                    colors={["#87A987"]}
                     progressBackgroundColor="#1a1a1a"
                   />
                 }
@@ -229,7 +229,7 @@ export default function FilesScreen() {
                     style={styles.recentCard}
                     onPress={() => handleFilePress(file.path)}
                   >
-                    <IconSymbol name="doc.text" size={24} color="#0A84FF" />
+                    <IconSymbol name="doc.text" size={24} color="#87A987" />
                     <View style={styles.recentCardContent}>
                       <ThemedText style={styles.recentFileName} numberOfLines={1}>
                         {file.title}
