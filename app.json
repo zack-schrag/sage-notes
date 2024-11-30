@@ -15,9 +15,19 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1a1a1a"
+        "backgroundColor": "#2a2a2a"
       },
-      "userInterfaceStyle": "dark"
+      "userInterfaceStyle": "dark",
+      "navigationBarColor": "#2a2a2a",
+      "navigationBarHidden": false,
+      "navigationBarStyle": "dark-content",
+      "windowTranslucentNavigation": false,
+      "windowTranslucentStatus": false,
+      "statusBar": {
+        "backgroundColor": "#2a2a2a",
+        "barStyle": "light-content",
+        "translucent": false
+      }
     },
     "web": {
       "bundler": "metro",

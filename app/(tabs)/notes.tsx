@@ -480,7 +480,7 @@ export default function NotesScreen() {
                         onPress={handleDeleteNote}
                         style={styles.deleteButton}
                     >
-                        <Ionicons name="trash-outline" size={20} color="#87A987" />
+                        <Ionicons name="trash-outline" size={20} color="#dc2626" />
                     </Pressable>
                 </View>
                 <View style={styles.dateSection}>
@@ -690,40 +690,76 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#1a1a1a',
         minHeight: '100%',
+        paddingTop: Platform.select({
+            ios: 0,
+            android: 24,
+        }),
+        paddingHorizontal: Platform.select({
+            ios: 0,
+            android: 20,
+        }),
+        paddingBottom: Platform.select({
+            ios: 0,
+            android: 20,
+        }),
     },
     toggleButton: {
         position: 'absolute',
-        right: 20,
-        top: 220,
+        right: Platform.select({
+            ios: 20,
+            android: 16,
+        }),
+        top: Platform.select({
+            ios: 220,
+            android: 232,
+        }),
         zIndex: 999,
-        padding: 10,
-        width: 36,
-        height: 36,
-        backgroundColor: 'rgba(45, 45, 45, 0.95)',
-        borderRadius: 18,
+        padding: Platform.select({
+            ios: 10,
+            android: 16,
+        }),
+        width: Platform.select({
+            ios: 36,
+            android: 56,
+        }),
+        height: Platform.select({
+            ios: 36,
+            android: 56,
+        }),
+        backgroundColor: '#2a2a2a',
+        borderRadius: Platform.select({
+            ios: 18,
+            android: 28,
+        }),
         alignItems: 'center',
         justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 1,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 2,
-        elevation: 2,
+        elevation: 4,
     },
     textInput: {
         flex: 1,
-        padding: 5,
+        color: '#e0e0e0',
         fontSize: 16,
-        lineHeight: 24,
-        color: '#fff',
+        lineHeight: Platform.select({
+            ios: 24,
+            android: 28,
+        }),
+        textAlignVertical: 'top',
+        paddingTop: Platform.select({
+            ios: 0,
+            android: 16,
+        }),
+        paddingBottom: Platform.select({
+            ios: 0,
+            android: 16,
+        }),
         minHeight: '100%',
     },
     previewContainer: {
         flex: 1,
-        padding: 5,
-        minHeight: '100%',
+        paddingHorizontal: Platform.select({
+            ios: 0,
+            android: 4,
+        }),
     },
     tagsSection: {
         paddingHorizontal: 30,

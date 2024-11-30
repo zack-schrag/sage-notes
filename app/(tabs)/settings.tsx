@@ -97,62 +97,69 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ThemedView style={styles.container}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="GitHub Repository URL"
-            placeholderTextColor="#666"
-            value={repoUrl}
-            onChangeText={setRepoUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="GitHub Personal Access Token"
-            placeholderTextColor="#666"
-            value={githubToken}
-            onChangeText={setGithubToken}
-            secureTextEntry={!showToken}
-          />
-          <Pressable
-            onPress={() => setShowToken(!showToken)}
-            style={styles.iconButton}
-          >
-            <IconSymbol 
-              name={showToken ? "eye.slash" : "eye"} 
-              size={20} 
-              color="#87A987" 
+        <View style={styles.inputSection}>
+          <View style={styles.inputContainer}>
+            <ThemedText style={styles.label}>Repository URL</ThemedText>
+            <TextInput
+              style={[styles.input, { color: '#e0e0e0' }]}
+              placeholder="e.g., https://github.com/username/repo"
+              placeholderTextColor="#666"
+              value={repoUrl}
+              onChangeText={setRepoUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
-          </Pressable>
+          </View>
+
+          <View style={styles.inputContainer}>
+            <ThemedText style={styles.label}>GitHub Personal Access Token</ThemedText>
+            <View style={styles.tokenInputContainer}>
+              <TextInput
+                style={[styles.input, styles.tokenInput, { color: '#e0e0e0' }]}
+                placeholder="Enter your GitHub PAT"
+                placeholderTextColor="#666"
+                value={githubToken}
+                onChangeText={setGithubToken}
+                secureTextEntry={!showToken}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable onPress={() => setShowToken(!showToken)} style={styles.eyeButton}>
+                <IconSymbol name={showToken ? "eye.slash" : "eye"} size={20} color="#87A987" />
+              </Pressable>
+            </View>
+          </View>
         </View>
 
         <View style={styles.actionsContainer}>
-          <Pressable
-            onPress={handleCloneRepo}
-            style={styles.iconButton}
+          <Pressable 
+            onPress={handleCloneRepo} 
             disabled={isCloning}
+            style={styles.actionButton}
           >
             <IconSymbol 
-              name="square.and.arrow.down" 
-              size={24} 
+              name="arrow.down.circle" 
+              size={32} 
               color="#87A987" 
             />
+            <ThemedText style={styles.actionText}>
+              {isCloning ? 'Cloning...' : 'Clone Repo'}
+            </ThemedText>
           </Pressable>
 
-          <Pressable
+          <Pressable 
             onPress={handleRemoveRepo}
-            style={styles.iconButton}
             disabled={isRemoving}
+            style={styles.actionButton}
           >
             <IconSymbol 
               name="trash" 
-              size={24} 
+              size={32} 
               color="#dc2626" 
             />
+            <ThemedText style={[styles.actionText, styles.deleteText]}>
+              {isRemoving ? 'Removing...' : 'Remove Repo'}
+            </ThemedText>
           </Pressable>
         </View>
       </ThemedView>
@@ -167,36 +174,70 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    padding: 30,
+    paddingHorizontal: 30,
+    paddingTop: Platform.select({
+      ios: 20,
+      android: 60,
+    }),
+    paddingBottom: Platform.select({
+      ios: 80,
+      android: 40,
+    }),
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  inputSection: {
     marginBottom: 24,
   },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 8,
+    marginLeft: 4,
+  },
   input: {
-    flex: 1,
     height: 44,
     borderWidth: 1,
     borderColor: '#333',
     borderRadius: 12,
     paddingHorizontal: 16,
-    color: '#e0e0e0',
     backgroundColor: '#1a1a1a',
     fontSize: 16,
   },
-  actionsContainer: {
+  tokenInputContainer: {
     flexDirection: 'row',
-    gap: 24,
+    alignItems: 'center',
   },
-  iconButton: {
+  tokenInput: {
+    flex: 1,
+  },
+  eyeButton: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 8,
   },
-  iconText: {
-    fontSize: 12,
-    marginTop: 4,
+  actionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 40,
+    marginTop: 20,
+  },
+  actionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#2a2a2a',
+    borderRadius: 12,
+    minWidth: 120,
+  },
+  actionText: {
+    fontSize: 14,
+    marginTop: 8,
     color: '#87A987',
+    fontWeight: '500',
+  },
+  deleteText: {
+    color: '#dc2626',
   },
 });

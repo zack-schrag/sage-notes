@@ -16,6 +16,16 @@ const MAPPING = {
   'github': 'code',  // Using 'code' as a fallback since MaterialIcons doesn't have a GitHub icon
   'arrow.triangle.2.circlepath': 'sync',  // Adding sync icon
   'arrow.triangle.2.circlepath.circle.fill': 'sync', // Adding filled sync icon
+  'list.dash': 'folder',  // Added for Files tab
+  'gearshape.fill': 'settings',  // Added for Settings tab
+  'plus': 'add',  // Added for New Note button
+  'arrow.down.circle': 'download',  // Added for Clone Repo button
+  'trash': 'delete',  // Added for Remove Repo button
+  'eye': 'visibility',  // Added for show/hide token
+  'eye.slash': 'visibility-off',  // Added for show/hide token
+  'pencil': 'edit',  // Added for edit mode toggle
+  'plus.circle.fill': 'add-circle',  // Added for Add tag button
+  'doc.text': 'description',  // Added for file icon in recent section
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],

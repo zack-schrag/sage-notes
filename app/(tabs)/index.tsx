@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, SafeAreaView, Pressable, Alert, ScrollView, RefreshControl } from 'react-native';
+import { StyleSheet, View, SafeAreaView, Pressable, Alert, ScrollView, RefreshControl, Platform } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { FileTree } from '@/components/FileTree';
 import { ThemedView } from '@/components/ThemedView';
@@ -208,7 +208,7 @@ export default function FilesScreen() {
                     <View style={styles.selectionActions}>
                       {selectedPaths.length > 0 && (
                         <Pressable onPress={handleDelete} style={styles.headerButton}>
-                          <IconSymbol name="trash" size={22} color="#87A987" />
+                          <IconSymbol name="trash" size={22} color="#dc2626" />
                         </Pressable>
                       )}
                       <Pressable 
@@ -218,7 +218,7 @@ export default function FilesScreen() {
                         }} 
                         style={styles.headerButton}
                       >
-                        <IconSymbol name="xmark" size={22} color="#87A987" />
+                        <ThemedText style={{ color: '#87A987', fontSize: 16 }}>Cancel</ThemedText>
                       </Pressable>
                     </View>
                   </View>
@@ -293,8 +293,14 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingTop: 20,
-    paddingBottom: 100,
+    paddingTop: Platform.select({
+      ios: 20,
+      android: 60,
+    }),
+    paddingBottom: Platform.select({
+      ios: 80,
+      android: 40,
+    }),
   },
   header: {
     flexDirection: 'row',
@@ -349,8 +355,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 4,
     textAlign: 'center',
+    marginBottom: Platform.select({
+      ios: 0,
+      android: 8,
+    }),
   },
   recentSection: {
     borderTopWidth: 1,
