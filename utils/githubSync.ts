@@ -1,5 +1,7 @@
+import { ensureRepoExists } from './fileSystem';
 import { getToken } from './tokenStorage';
 import { Buffer } from 'buffer';
+import * as FileSystem from 'expo-file-system';
 
 const REPO_OWNER = 'zack-schrag';
 const REPO_NAME = 'notes';
@@ -312,4 +314,86 @@ export async function commitAllPendingChanges() {
 
 export function hasPendingChanges(path: string): boolean {
     return !!pendingChanges[path];
+}
+
+export async function syncFromGitHub(): Promise<void> {
+    try {
+        console.log('[GitHub] Starting sync');
+        const token = await getToken();
+        if (!token) {
+            throw new Error('No GitHub token found');
+        }
+
+        const baseDir = await ensureRepoExists();
+        console.log('[GitHub] Base directory:', baseDir);
+
+        // Get all files from GitHub
+        const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents`, {
+            headers: {
+                Authorization: `token ${token}`,
+                Accept: 'application/vnd.github.v3+json',
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`);
+        }
+
+        const files = await response.json();
+        const githubFiles = new Set(files.filter(f => f.type === 'file').map(f => f.name));
+        console.log('[GitHub] Found files:', Array.from(githubFiles));
+
+        // Get local files
+        const localFiles = await FileSystem.readDirectoryAsync(baseDir);
+        console.log('[GitHub] Local files:', localFiles);
+        
+        // Delete local files that don't exist on GitHub
+        for (const localFile of localFiles) {
+            if (localFile.toLowerCase().endsWith('.md') && !githubFiles.has(localFile)) {
+                console.log('[GitHub] Deleting removed file:', localFile);
+                const localPath = `${baseDir}/${localFile}`;
+                await FileSystem.deleteAsync(localPath);
+                await deleteFileMetadata(localPath);
+            }
+        }
+        
+        // Process each GitHub file
+        for (const file of files) {
+            if (file.type !== 'file') continue;
+
+            const localPath = `${baseDir}/${file.name}`;
+            try {
+                // Store file metadata for later use
+                await updateFileMetadata(localPath, {
+                    sha: file.sha,
+                    url: file.url,
+                    htmlUrl: file.html_url
+                });
+
+                // Fetch the file content using the file's URL
+                console.log('[GitHub] Fetching content for:', file.name);
+                const contentResponse = await fetch(file.url, {
+                    headers: {
+                        Authorization: `token ${token}`,
+                        Accept: 'application/vnd.github.v3+json',
+                    }
+                });
+                
+                if (!contentResponse.ok) {
+                    throw new Error(`Failed to fetch file content: ${contentResponse.status}`);
+                }
+
+                const contentData = await contentResponse.json();
+                const content = Buffer.from(contentData.content, 'base64').toString('utf8');
+                await FileSystem.writeAsStringAsync(localPath, content);
+                console.log('[GitHub] Saved file:', file.name);
+            } catch (error) {
+                console.error(`Error syncing file ${file.name}:`, error);
+            }
+        }
+        console.log('[GitHub] Sync complete');
+    } catch (error) {
+        console.error('Error syncing from GitHub:', error);
+        throw error;
+    }
 }

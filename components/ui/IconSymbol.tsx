@@ -14,6 +14,8 @@ const MAPPING = {
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
   'github': 'code',  // Using 'code' as a fallback since MaterialIcons doesn't have a GitHub icon
+  'arrow.triangle.2.circlepath': 'sync',  // Adding sync icon
+  'arrow.triangle.2.circlepath.circle.fill': 'sync', // Adding filled sync icon
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],

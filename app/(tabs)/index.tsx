@@ -1,51 +1,111 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, SafeAreaView, Pressable, ScrollView } from 'react-native';
-import { router } from 'expo-router';
+import { StyleSheet, View, SafeAreaView, Pressable, Alert, ScrollView, RefreshControl } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { FileTree } from '@/components/FileTree';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
-import { IconSymbol } from '@/components/ui/IconSymbol';
+import { getDirectoryStructure, createNewNote, deleteItems, REPOS_DIR, listMarkdownFiles } from '@/utils/fileSystem';
 import { getToken } from '@/utils/tokenStorage';
-import { listMarkdownFiles, REPOS_DIR, createNewNote } from '@/utils/fileSystem';
-import { Ionicons } from '@expo/vector-icons';
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { syncFromGitHub } from '@/utils/githubSync';
+import * as FileSystem from 'expo-file-system';
+import { formatTimeAgo } from '@/utils/dateFormat';
 
-interface NoteCard {
+interface RecentFile {
   title: string;
   path: string;
+  modifiedTime: Date;
 }
 
-export default function RecentScreen() {
-  const [recentNotes, setRecentNotes] = useState<NoteCard[]>([]);
+export default function FilesScreen() {
+  const [fileTree, setFileTree] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [timeAgoText, setTimeAgoText] = useState<string>('');
+
+  const loadFiles = async () => {
+    try {
+      setIsLoading(true);
+      const token = await getToken();
+      if (!token) {
+        router.replace('/(tabs)/');
+        return;
+      }
+
+      const structure = await getDirectoryStructure();
+      setFileTree(structure);
+
+      // Load recent files
+      const files = await listMarkdownFiles();
+      const recentNotes = await Promise.all(
+        files.slice(0, 5).map(async (path) => {
+          const fullPath = `${REPOS_DIR}notes/${path}`;
+          const fileInfo = await FileSystem.getInfoAsync(fullPath);
+          return {
+            title: path.split('/').pop() || 'Untitled.md',
+            path: fullPath,
+            modifiedTime: new Date(fileInfo.modificationTime * 1000)
+          };
+        })
+      );
+      setRecentFiles(recentNotes);
+    } catch (error) {
+      console.error('Error loading files:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadRecentNotes = async () => {
-      try {
-        setIsLoading(true);
-        const token = await getToken();
-        if (!token) {
-          router.replace('/(tabs)/');
-          return;
-        }
+    loadFiles();
+  }, []);
 
-        const files = await listMarkdownFiles();
-        const notes = files.slice(0, 10).map(path => ({
-          title: path.split('/').pop() || 'Untitled.md',
-          path: `${REPOS_DIR}notes/${path}`,
-        }));
-        setRecentNotes(notes);
-      } catch (error) {
-        console.error('Error loading recent notes:', error);
-      } finally {
-        setIsLoading(false);
-      }
+  useFocusEffect(
+    React.useCallback(() => {
+      loadFiles();
+    }, [])
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      console.log('Running timer...');
+    }, 60000); // Update every minute
+
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!lastSyncTime) return;
+
+    const updateTimeAgo = () => {
+      const newText = formatTimeAgo(lastSyncTime);
+      console.log('Updating time ago:', newText);
+      setTimeAgoText(newText);
     };
 
-    loadRecentNotes();
-  }, []);
+    // Update immediately
+    updateTimeAgo();
+
+    // Then update every 10 seconds
+    const timer = setInterval(updateTimeAgo, 10000);
+
+    return () => clearInterval(timer);
+  }, [lastSyncTime]);
+
+  const handleFilePress = (path: string) => {
+    router.push({
+      pathname: '/(tabs)/notes',
+      params: { filePath: path }
+    });
+  };
 
   const handleNewNote = async () => {
     try {
       const { filePath } = await createNewNote();
+      await loadFiles();
       router.push({
         pathname: '/(tabs)/notes',
         params: { filePath }
@@ -55,47 +115,146 @@ export default function RecentScreen() {
     }
   };
 
-  const handleNotePress = (path: string) => {
-    router.push({
-      pathname: '/(tabs)/notes',
-      params: { filePath: path }
-    });
+  const handleSelectionChange = (paths: string[]) => {
+    setSelectedPaths(paths);
   };
+
+  const handleDelete = async () => {
+    if (selectedPaths.length === 0) return;
+
+    Alert.alert(
+      'Delete Items',
+      `Are you sure you want to delete ${selectedPaths.length} item${selectedPaths.length === 1 ? '' : 's'}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteItems(selectedPaths);
+              setSelectedPaths([]);
+              await loadFiles();
+            } catch (error) {
+              console.error('Error deleting items:', error);
+              Alert.alert('Error', 'Failed to delete some items');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSync = async () => {
+    if (isSyncing) return;
+    
+    try {
+      setIsSyncing(true);
+      await syncFromGitHub();
+      await loadFiles();
+      setLastSyncTime(new Date());
+    } catch (error) {
+      console.error('Error syncing with GitHub:', error);
+      Alert.alert('Sync Error', 'Failed to sync with GitHub. Please try again.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Background sync every 5 minutes
+  useEffect(() => {
+    let syncInterval: NodeJS.Timeout;
+    
+    const startBackgroundSync = () => {
+      // Initial sync when component mounts
+      handleSync();
+      
+      // Then sync every 5 minutes
+      syncInterval = setInterval(() => {
+        console.log('Running background sync...');
+        handleSync();
+      }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    };
+
+    startBackgroundSync();
+
+    // Cleanup interval on unmount
+    return () => {
+      if (syncInterval) {
+        clearInterval(syncInterval);
+      }
+    };
+  }, []); // Empty dependency array means this runs once on mount
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ThemedView style={styles.container}>
-        <ScrollView style={styles.scrollView}>
-          {isLoading ? (
-            <ThemedText style={styles.loadingText}>Loading notes...</ThemedText>
-          ) : recentNotes.length === 0 ? (
-            <View style={styles.emptyState}>
-              <ThemedText style={styles.emptyStateText}>No notes yet</ThemedText>
-            </View>
-          ) : (
-            <View style={styles.notesContainer}>
-              {recentNotes.map((note) => (
-                <Pressable
-                  key={note.path}
-                  style={styles.noteCard}
-                  onPress={() => handleNotePress(note.path)}
-                >
-                  <Ionicons
-                    name="document-text-outline"
-                    size={20}
-                    color="#666"
-                    style={styles.icon}
+        {isLoading ? (
+          <ThemedText style={styles.loadingText}>Loading files...</ThemedText>
+        ) : (
+          <>
+            <View style={styles.treeContainer}>
+              <ScrollView 
+                contentInsetAdjustmentBehavior="automatic"
+                refreshControl={
+                  <RefreshControl
+                    refreshing={isSyncing}
+                    onRefresh={handleSync}
+                    tintColor="#666"
+                    colors={["#0A84FF"]}
+                    progressBackgroundColor="#1a1a1a"
                   />
-                  <ThemedText style={styles.noteTitle}>{note.title}</ThemedText>
-                </Pressable>
-              ))}
+                }
+              >
+                <FileTree 
+                  data={fileTree} 
+                  onFilePress={handleFilePress}
+                  onSelectionChange={handleSelectionChange}
+                />
+              </ScrollView>
             </View>
-          )}
-        </ScrollView>
 
-        <Pressable onPress={handleNewNote} style={styles.newButton}>
-          <IconSymbol name="plus" size={22} color="#e0e0e0" />
-        </Pressable>
+            <View style={styles.recentSection}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recentScrollContent}
+              >
+                {recentFiles.map((file) => (
+                  <Pressable
+                    key={file.path}
+                    style={styles.recentCard}
+                    onPress={() => handleFilePress(file.path)}
+                  >
+                    <IconSymbol name="doc.text" size={24} color="#0A84FF" />
+                    <View style={styles.recentCardContent}>
+                      <ThemedText style={styles.recentFileName} numberOfLines={1}>
+                        {file.title}
+                      </ThemedText>
+                      <ThemedText style={styles.recentFileTime}>
+                        {file.modifiedTime.toLocaleDateString()}
+                      </ThemedText>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+
+            {selectedPaths.length > 0 && (
+              <Pressable onPress={handleDelete} style={styles.deleteButton}>
+                <IconSymbol name="trash" size={22} color="#e0e0e0" />
+              </Pressable>
+            )}
+            {lastSyncTime && (
+              <ThemedText style={styles.lastSyncText}>
+                Last synced {timeAgoText}
+              </ThemedText>
+            )}
+          </>
+        )}
       </ThemedView>
     </SafeAreaView>
   );
@@ -111,51 +270,40 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 100,
   },
-  scrollView: {
-    flex: 1,
-  },
-  notesContainer: {
-    flex: 1,
-    paddingHorizontal: 30,
-  },
-  noteCard: {
+  header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    padding: 10,
   },
-  icon: {
-    marginRight: 12,
-    width: 20,
-    opacity: 0.6,
-  },
-  noteTitle: {
+  headerLeft: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '400',
-    color: '#e0e0e0',
+  },
+  headerRight: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  treeContainer: {
+    flex: 1,
   },
   loadingText: {
     paddingHorizontal: 30,
     paddingTop: 20,
     color: '#888',
   },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 40,
-  },
-  emptyStateText: {
-    color: '#888',
-    fontSize: 15,
-  },
-  newButton: {
+  deleteButton: {
     position: 'absolute',
     right: 30,
     bottom: 100,
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(45, 45, 45, 0.95)',
+    backgroundColor: 'rgba(220, 38, 38, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -166,5 +314,43 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 5,
+  },
+  lastSyncText: {
+    fontSize: 12,
+    color: '#666',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    textAlign: 'center',
+  },
+  recentSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    paddingVertical: 12,
+    backgroundColor: '#1a1a1a',
+  },
+  recentScrollContent: {
+    paddingHorizontal: 12,
+  },
+  recentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a2a2a',
+    padding: 12,
+    borderRadius: 12,
+    marginHorizontal: 4,
+    width: 200,
+  },
+  recentCardContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  recentFileName: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  recentFileTime: {
+    fontSize: 12,
+    color: '#666',
   },
 });

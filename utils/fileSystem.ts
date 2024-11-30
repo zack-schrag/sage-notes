@@ -1,5 +1,5 @@
 import * as FileSystem from 'expo-file-system';
-import { getFileMetadata, deleteFile, deleteFileMetadata } from './githubSync';
+import { getFileMetadata, deleteFile, deleteFileMetadata, commitFile } from './githubSync';
 
 // Base directory for all our git repositories
 export const REPOS_DIR = `${FileSystem.documentDirectory}repos/`;
@@ -280,6 +280,19 @@ export async function createNewNote(): Promise<{ filePath: string; filename: str
     
     const initialContent = '# New Note\n\nStart writing here...\n';
     await FileSystem.writeAsStringAsync(filePath, initialContent);
+    
+    // Sync the new file to GitHub
+    try {
+        await commitFile({
+            path: filePath,
+            content: initialContent,
+            message: `Create new note: ${filename}`
+        });
+    } catch (error) {
+        console.error('Failed to sync new note to GitHub:', error);
+        // Note is still created locally even if GitHub sync fails
+    }
+    
     return { filePath, filename };
 }
 
@@ -298,24 +311,35 @@ export async function deleteLocalFile(path: string, sha?: string): Promise<boole
 export async function deleteItems(paths: string[]): Promise<boolean> {
   try {
     for (const path of paths) {
-      const info = await FileSystem.getInfoAsync(path);
-      if (info.exists) {
-        // Get the file's metadata before deleting
-        const metadata = await getFileMetadata(path);
-        
-        // Delete from GitHub first if we have the SHA
-        if (metadata?.sha) {
-          await deleteFile(path, metadata.sha);
-          await deleteFileMetadata(path);
+      try {
+        const info = await FileSystem.getInfoAsync(path);
+        if (info.exists) {
+          console.log('Deleting file:', path);
+          // Get the file's metadata before deleting
+          const metadata = await getFileMetadata(path);
+          
+          // Delete from GitHub first if we have the SHA
+          if (metadata?.sha) {
+            console.log('Deleting from GitHub first:', path);
+            await deleteFile(path, metadata.sha);
+            await deleteFileMetadata(path);
+          }
+          
+          // Then delete locally
+          await deleteLocalFile(path);
+          console.log('Successfully deleted:', path);
+        } else {
+          console.log('File does not exist:', path);
         }
-        
-        // Then delete locally
-        await deleteLocalFile(path);
+      } catch (error) {
+        console.error(`Error deleting file ${path}:`, error);
+        // Continue with other files even if one fails
+        continue;
       }
     }
     return true;
   } catch (error) {
-    console.error('Error deleting items:', error);
+    console.error('Error in deleteItems:', error);
     return false;
   }
 }
