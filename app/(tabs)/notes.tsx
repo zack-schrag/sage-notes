@@ -75,85 +75,98 @@ export default function NotesScreen() {
 
             try {
                 setIsSaving(true);
+                
+                // Phase 1: Immediate local file load
                 const content = await FileSystem.readAsStringAsync(filePath);
                 const { frontmatter, content: markdownContent } = parseMarkdown(content);
-                
-                // Get file info from GitHub to initialize metadata
-                const relativePath = getRelativePath(filePath);
-                let sha = undefined;
-                let htmlUrl = '';
-                let created = frontmatter.created || "Just now";
-                let lastUpdated = frontmatter.lastUpdated || "Just now";
-                
-                if (relativePath) {
+                setMarkdownText(markdownContent);
+
+                // Initialize metadata with frontmatter dates if available
+                const hasFrontmatterCreated = !!frontmatter.created;
+                const hasFrontmatterUpdated = !!frontmatter.lastUpdated;
+
+                setMetadata(prev => ({
+                    ...prev,
+                    filename: filePath.split('/').pop() || "New Note",
+                    created: hasFrontmatterCreated ? formatDate(frontmatter.created) : "Just now",
+                    lastUpdated: hasFrontmatterUpdated ? formatDate(frontmatter.lastUpdated) : "Just now",
+                    tags: frontmatter.tags || []
+                }));
+                setIsSaving(false);
+
+                // Phase 2: Background GitHub metadata load
+                const loadGitHubMetadata = async () => {
+                    const relativePath = getRelativePath(filePath);
+                    if (!relativePath) return;
+
                     try {
                         // Get file info for SHA
                         const fileInfo = await getFileInfo(relativePath);
-                        if (fileInfo) {
-                            sha = fileInfo.sha;
-                            htmlUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/blob/main/${relativePath}`;
+                        if (!fileInfo) return;
 
-                            // Get commit history for dates
-                            const token = await getToken();
-                            if (token) {
-                                const headers = {
-                                    Authorization: `token ${token}`,
-                                    Accept: 'application/vnd.github.v3+json',
-                                };
+                        const sha = fileInfo.sha;
+                        const htmlUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/blob/main/${relativePath}`;
 
-                                try {
-                                    // Get the latest commit (most recent)
-                                    const latestCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
-                                    const latestCommitResponse = await fetch(latestCommitUrl, { headers });
-                                    const latestCommits = await latestCommitResponse.json();
-                                    const lastCommitDate = latestCommits[0]?.commit?.committer?.date;
+                        // Get commit history for dates
+                        const token = await getToken();
+                        if (!token) return;
 
-                                    // Get total number of commits for this file
-                                    const commitCountUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
-                                    const countResponse = await fetch(commitCountUrl, { headers });
-                                    const linkHeader = countResponse.headers.get('link');
-                                    let totalPages = 1;
-                                    
-                                    if (linkHeader) {
-                                        const lastPageMatch = linkHeader.match(/&page=(\d+)>; rel="last"/);
-                                        if (lastPageMatch) {
-                                            totalPages = parseInt(lastPageMatch[1]);
-                                        }
-                                    }
+                        const headers = {
+                            Authorization: `token ${token}`,
+                            Accept: 'application/vnd.github.v3+json',
+                        };
 
-                                    // Get the first commit (oldest) using the correct page number
-                                    const firstCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1&page=${totalPages}`;
-                                    const firstCommitResponse = await fetch(firstCommitUrl, { headers });
-                                    const firstCommits = await firstCommitResponse.json();
-                                    const firstCommitDate = firstCommits[0]?.commit?.committer?.date;
+                        // Only fetch commit dates if we don't have them in frontmatter
+                        let firstCommitDate = undefined;
+                        let lastCommitDate = undefined;
 
-                                    if (firstCommitDate && lastCommitDate) {
-                                        created = formatDate(firstCommitDate);
-                                        lastUpdated = formatDate(lastCommitDate);
-                                    }
-                                } catch (error) {
-                                    console.error('Error fetching commit history:', error);
+                        if (!hasFrontmatterCreated || !hasFrontmatterUpdated) {
+                            // Get the latest commit (most recent)
+                            const latestCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
+                            const latestCommitResponse = await fetch(latestCommitUrl, { headers });
+                            const latestCommits = await latestCommitResponse.json();
+                            lastCommitDate = latestCommits[0]?.commit?.committer?.date;
+
+                            // Get total number of commits for this file
+                            const commitCountUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
+                            const countResponse = await fetch(commitCountUrl, { headers });
+                            const linkHeader = countResponse.headers.get('link');
+                            let totalPages = 1;
+                            
+                            if (linkHeader) {
+                                const lastPageMatch = linkHeader.match(/&page=(\d+)>; rel="last"/);
+                                if (lastPageMatch) {
+                                    totalPages = parseInt(lastPageMatch[1]);
                                 }
                             }
-                        }
-                    } catch (error) {
-                        console.error('Error getting GitHub metadata:', error);
-                    }
-                }
 
-                setMetadata({
-                    filename: filePath.split('/').pop() || "Untitled",
-                    created,
-                    lastUpdated,
-                    tags: frontmatter.tags || [],
-                    sha,
-                    htmlUrl
+                            // Get the first commit (oldest) using the correct page number
+                            const firstCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1&page=${totalPages}`;
+                            const firstCommitResponse = await fetch(firstCommitUrl, { headers });
+                            const firstCommits = await firstCommitResponse.json();
+                            firstCommitDate = firstCommits[0]?.commit?.committer?.date;
+                        }
+
+                        setMetadata(prev => ({
+                            ...prev,
+                            sha,
+                            htmlUrl,
+                            // Only update dates if they weren't in frontmatter
+                            created: hasFrontmatterCreated ? prev.created : (firstCommitDate ? formatDate(firstCommitDate) : prev.created),
+                            lastUpdated: hasFrontmatterUpdated ? prev.lastUpdated : (lastCommitDate ? formatDate(lastCommitDate) : prev.lastUpdated)
+                        }));
+                    } catch (error) {
+                        console.error('Error loading GitHub metadata:', error);
+                    }
+                };
+
+                // Start background load
+                loadGitHubMetadata().catch(error => {
+                    console.error('Background GitHub metadata load failed:', error);
                 });
 
-                setMarkdownText(markdownContent);
             } catch (error) {
                 console.error('Error loading file:', error);
-            } finally {
                 setIsSaving(false);
             }
         }
