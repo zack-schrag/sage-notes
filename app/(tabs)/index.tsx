@@ -21,6 +21,7 @@ export default function FilesScreen() {
   const [fileTree, setFileTree] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
@@ -197,6 +198,31 @@ export default function FilesScreen() {
         ) : (
           <>
             <View style={styles.treeContainer}>
+              {isSelectionMode && (
+                <View style={styles.selectionHeader}>
+                  <View style={styles.selectionHeaderContent}>
+                    <ThemedText style={styles.selectionCount}>
+                      {selectedPaths.length} selected
+                    </ThemedText>
+                    <View style={styles.selectionActions}>
+                      {selectedPaths.length > 0 && (
+                        <Pressable onPress={handleDelete} style={styles.headerButton}>
+                          <IconSymbol name="trash" size={22} color="#87A987" />
+                        </Pressable>
+                      )}
+                      <Pressable 
+                        onPress={() => {
+                          setIsSelectionMode(false);
+                          setSelectedPaths([]);
+                        }} 
+                        style={styles.headerButton}
+                      >
+                        <IconSymbol name="xmark" size={22} color="#87A987" />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              )}
               <ScrollView 
                 contentInsetAdjustmentBehavior="automatic"
                 refreshControl={
@@ -213,42 +239,41 @@ export default function FilesScreen() {
                   data={fileTree} 
                   onFilePress={handleFilePress}
                   onSelectionChange={handleSelectionChange}
+                  onSelectionModeChange={setIsSelectionMode}
+                  isSelectionMode={isSelectionMode}
                 />
               </ScrollView>
             </View>
 
-            <View style={styles.recentSection}>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.recentScrollContent}
-              >
-                {recentFiles.map((file) => (
-                  <Pressable
-                    key={file.path}
-                    style={styles.recentCard}
-                    onPress={() => handleFilePress(file.path)}
-                  >
-                    <IconSymbol name="doc.text" size={24} color="#87A987" />
-                    <View style={styles.recentCardContent}>
-                      <ThemedText style={styles.recentFileName} numberOfLines={1}>
-                        {file.title}
-                      </ThemedText>
-                      <ThemedText style={styles.recentFileTime}>
-                        {file.modifiedTime.toLocaleDateString()}
-                      </ThemedText>
-                    </View>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-
-            {selectedPaths.length > 0 && (
-              <Pressable onPress={handleDelete} style={styles.deleteButton}>
-                <IconSymbol name="trash" size={22} color="#e0e0e0" />
-              </Pressable>
+            {!isSelectionMode && (
+              <View style={styles.recentSection}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.recentScrollContent}
+                >
+                  {recentFiles.map((file) => (
+                    <Pressable
+                      key={file.path}
+                      style={styles.recentCard}
+                      onPress={() => handleFilePress(file.path)}
+                    >
+                      <IconSymbol name="doc.text" size={24} color="#87A987" />
+                      <View style={styles.recentCardContent}>
+                        <ThemedText style={styles.recentFileName} numberOfLines={1}>
+                          {file.title}
+                        </ThemedText>
+                        <ThemedText style={styles.recentFileTime}>
+                          {file.modifiedTime.toLocaleDateString()}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
             )}
-            {lastSyncTime && (
+
+            {lastSyncTime && !isSelectionMode && (
               <ThemedText style={styles.lastSyncText}>
                 Last synced {timeAgoText}
               </ThemedText>
@@ -296,24 +321,28 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     color: '#888',
   },
-  deleteButton: {
-    position: 'absolute',
-    right: 30,
-    bottom: 100,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(220, 38, 38, 0.95)',
+  selectionHeader: {
+    paddingHorizontal: 30,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  selectionHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 5,
+  },
+  selectionCount: {
+    fontSize: 16,
+    color: '#87A987',
+  },
+  selectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+  },
+  headerButton: {
+    padding: 8,
   },
   lastSyncText: {
     fontSize: 12,

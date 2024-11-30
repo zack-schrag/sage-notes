@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Pressable, StyleSheet, GestureResponderEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './ThemedText';
 
@@ -14,6 +14,8 @@ interface FileTreeProps {
   data: FileTreeItem[];
   onFilePress: (path: string) => void;
   onSelectionChange?: (selectedPaths: string[]) => void;
+  onSelectionModeChange?: (isSelectionMode: boolean) => void;
+  isSelectionMode?: boolean;
 }
 
 interface FileTreeNodeProps {
@@ -29,13 +31,35 @@ interface FileTreeNodeProps {
 export const FileTree: React.FC<FileTreeProps> = ({ 
   data, 
   onFilePress,
-  onSelectionChange 
+  onSelectionChange,
+  onSelectionModeChange,
+  isSelectionMode = false
 }) => {
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState(new Set<string>());
 
-  const handleLongPress = () => {
-    setIsSelectionMode(true);
+  // Reset selection when exiting selection mode
+  useEffect(() => {
+    if (!isSelectionMode) {
+      setSelectedPaths(new Set());
+      onSelectionChange?.([]);
+    }
+  }, [isSelectionMode]);
+
+  const handleLongPress = (item: FileTreeItem) => {
+    onSelectionModeChange?.(true);
+    const initialSelection = new Set<string>();
+    
+    if (item.type === 'dir') {
+      // For directories, select all child files
+      const childFiles = getAllChildFiles(item);
+      childFiles.forEach(path => initialSelection.add(path));
+    } else {
+      // For files, just select the file
+      initialSelection.add(item.path);
+    }
+    
+    setSelectedPaths(initialSelection);
+    onSelectionChange?.(Array.from(initialSelection));
   };
 
   const handleSelectionChange = (paths: string[]) => {
@@ -51,12 +75,6 @@ export const FileTree: React.FC<FileTreeProps> = ({
     onSelectionChange?.(Array.from(newSelection));
   };
 
-  const exitSelectionMode = () => {
-    setIsSelectionMode(false);
-    setSelectedPaths(new Set());
-    onSelectionChange?.([]);
-  };
-
   return (
     <View style={styles.container}>
       {data.map((item) => (
@@ -68,7 +86,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
           level={0}
           isSelectionMode={isSelectionMode}
           selectedPaths={selectedPaths}
-          onLongPress={handleLongPress}
+          onLongPress={() => handleLongPress(item)}
         />
       ))}
     </View>
@@ -89,25 +107,56 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   const hasChildren = isDirectory && item.children && item.children.length > 0;
   const isSelected = selectedPaths?.has(item.path);
 
-  const getAllChildPaths = (item: FileTreeItem): string[] => {
-    let paths = [item.path];
+  const getAllChildFiles = (item: FileTreeItem): string[] => {
+    let files: string[] = [];
+    if (item.type === 'file') {
+      files.push(item.path);
+    }
     if (item.children) {
       item.children.forEach(child => {
-        paths = paths.concat(getAllChildPaths(child));
+        files = files.concat(getAllChildFiles(child));
       });
     }
-    return paths;
+    return files;
+  };
+
+  const isFullySelected = (): boolean => {
+    if (!isDirectory || !selectedPaths) return isSelected || false;
+    const childFiles = getAllChildFiles(item);
+    return childFiles.length > 0 && childFiles.every(path => selectedPaths.has(path));
   };
 
   const handlePress = () => {
     if (isSelectionMode && onSelectionChange) {
-      const paths = isDirectory ? getAllChildPaths(item) : [item.path];
-      onSelectionChange(paths);
+      // For files, just toggle selection
+      if (!isDirectory) {
+        onSelectionChange([item.path]);
+        return;
+      }
+      
+      // For directories, select/deselect all child files
+      const childFiles = getAllChildFiles(item);
+      if (isFullySelected()) {
+        // If all files are selected, deselect all
+        onSelectionChange(childFiles);
+      } else {
+        // If not all files are selected, select all
+        onSelectionChange(childFiles);
+        if (!expanded) {
+          setExpanded(true);
+        }
+      }
     } else if (isDirectory) {
       setExpanded(!expanded);
     } else if (onFilePress) {
       onFilePress(item.path);
     }
+  };
+
+  const handleCaretPress = (event: GestureResponderEvent) => {
+    // Stop event propagation to prevent triggering the parent press handler
+    event.stopPropagation();
+    setExpanded(!expanded);
   };
 
   return (
@@ -122,19 +171,21 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
       >
         {isSelectionMode && (
           <Ionicons
-            name={isSelected ? 'checkbox' : 'square-outline'}
+            name={isFullySelected() ? 'checkbox' : 'square-outline'}
             size={20}
             color="#666"
             style={styles.checkbox}
           />
         )}
         {isDirectory && (
-          <Ionicons
-            name={expanded ? 'chevron-down' : 'chevron-forward'}
-            size={20}
-            color="#666"
-            style={styles.icon}
-          />
+          <Pressable onPress={handleCaretPress}>
+            <Ionicons
+              name={expanded ? 'chevron-down' : 'chevron-forward'}
+              size={20}
+              color="#666"
+              style={styles.icon}
+            />
+          </Pressable>
         )}
         {!isDirectory && (
           <Ionicons
