@@ -467,7 +467,7 @@ export default function NotesScreen() {
                         onPress={handleDeleteNote}
                         style={styles.deleteButton}
                     >
-                        <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                        <Ionicons name="trash-outline" size={20} color="#87A987" />
                     </Pressable>
                 </View>
                 <View style={styles.dateSection}>
@@ -485,8 +485,8 @@ export default function NotesScreen() {
                         {metadata.tags.map((tag, index) => (
                             <Pressable
                                 key={index}
-                                onLongPress={() => handleRemoveTag(tag)}
                                 style={styles.tag}
+                                onLongPress={() => handleRemoveTag(tag)}
                             >
                                 <Text style={styles.tagText}>#{tag}</Text>
                             </Pressable>
@@ -496,7 +496,7 @@ export default function NotesScreen() {
                         onPress={() => setIsAddTagModalVisible(true)} 
                         style={styles.addTagButton}
                     >
-                        <Ionicons name="add-circle-outline" size={16} color="#87A987" />
+                        <IconSymbol name="plus.circle.fill" size={18} color="#87A987" />
                         <Text style={[styles.addTagText, { color: '#87A987' }]}>Add tag</Text>
                     </Pressable>
                 </View>
@@ -723,14 +723,18 @@ const styles = StyleSheet.create({
         marginBottom: 6,
     },
     tag: {
-        backgroundColor: 'rgba(45, 45, 45, 0.95)',
-        paddingHorizontal: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(135, 169, 135, 0.1)',
         paddingVertical: 4,
+        paddingHorizontal: 8,
         borderRadius: 12,
+        marginRight: 8,
+        marginBottom: 8,
     },
     tagText: {
-        color: '#0A84FF',
-        fontSize: 13,
+        color: '#87A987',
+        fontSize: 14,
     },
     addTagButton: {
         flexDirection: 'row',
@@ -740,7 +744,7 @@ const styles = StyleSheet.create({
         paddingLeft: 2
     },
     addTagText: {
-        color: '#0A84FF',
+        color: '#87A987',
         fontSize: 14,
     },
     savingIndicator: {
@@ -770,30 +774,104 @@ const markdownStyles = {
         fontWeight: 'bold',
         color: '#e0e0e0',
     },
+    heading3: {
+        fontSize: 18,
+        marginTop: 16,
+        marginBottom: 8,
+        fontWeight: 'bold',
+        color: '#e0e0e0',
+    },
+    heading4: {
+        fontSize: 16,
+        marginTop: 16,
+        marginBottom: 8,
+        fontWeight: 'bold',
+        color: '#e0e0e0',
+    },
+    heading5: {
+        fontSize: 14,
+        marginTop: 16,
+        marginBottom: 8,
+        fontWeight: 'bold',
+        color: '#e0e0e0',
+    },
+    heading6: {
+        fontSize: 12,
+        marginTop: 16,
+        marginBottom: 8,
+        fontWeight: 'bold',
+        color: '#e0e0e0',
+    },
     paragraph: {
         marginVertical: 8,
         color: '#e0e0e0',
     },
-    list: {
-        marginLeft: 20,
+    hr: { 
+        backgroundColor: '#333',
+        height: 1,
+        marginVertical: 16,
+    },
+    strong: { 
+        fontWeight: 'bold',
         color: '#e0e0e0',
     },
-    listItem: {
+    em: { 
+        fontStyle: 'italic',
         color: '#e0e0e0',
     },
-    link: {
-        color: '#0A84FF',
+    link: { 
+        color: '#87A987',
+        textDecorationLine: 'underline',
     },
-    blockquote: {
-        color: '#bbb',
-        borderColor: '#666',
+    blockquote: { 
+        backgroundColor: '#222',
+        borderLeftWidth: 4,
+        borderLeftColor: '#333',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        marginVertical: 8,
     },
-    code_inline: {
-        color: '#0A84FF',
-        backgroundColor: 'rgba(45, 45, 45, 0.95)',
-    },
-    code_block: {
-        backgroundColor: 'rgba(45, 45, 45, 0.95)',
+    code_inline: { 
         color: '#e0e0e0',
+        backgroundColor: '#222',
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+        borderRadius: 4,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
+    code_block: { 
+        color: '#e0e0e0',
+        backgroundColor: '#222',
+        padding: 12,
+        borderRadius: 4,
+        marginVertical: 8,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    fence: { 
+        color: '#e0e0e0',
+        backgroundColor: '#222',
+        padding: 12,
+        borderRadius: 4,
+        marginVertical: 8,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    list_item: { 
+        color: '#e0e0e0',
+        marginVertical: 4,
+        paddingLeft: 4,
+    },
+    bullet_list: { 
+        color: '#e0e0e0',
+        marginVertical: 8,
+    },
+    ordered_list: { 
+        color: '#e0e0e0',
+        marginVertical: 8,
+    },
+    bullet: { 
+        color: '#87A987',
+    },
+    tag: { 
+        color: '#87A987',
+    }
 };
