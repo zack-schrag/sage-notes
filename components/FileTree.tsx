@@ -6,27 +6,104 @@ import { ThemedText } from './ThemedText';
 interface FileTreeItem {
   name: string;
   path: string;
-  type: 'file' | 'dir';
+  type: 'dir' | 'file';
   children?: FileTreeItem[];
 }
 
 interface FileTreeProps {
   data: FileTreeItem[];
-  onFilePress?: (path: string) => void;
-  level?: number;
+  onFilePress: (path: string) => void;
+  onSelectionChange?: (selectedPaths: string[]) => void;
 }
 
-interface FileTreeNodeProps extends FileTreeProps {
+interface FileTreeNodeProps {
   item: FileTreeItem;
+  onFilePress: (path: string) => void;
+  onSelectionChange?: (selectedPaths: string[]) => void;
+  level?: number;
+  isSelectionMode?: boolean;
+  selectedPaths?: Set<string>;
+  onLongPress?: () => void;
 }
 
-const FileTreeNode: React.FC<FileTreeNodeProps> = ({ item, onFilePress, level = 0 }) => {
+export const FileTree: React.FC<FileTreeProps> = ({ 
+  data, 
+  onFilePress,
+  onSelectionChange 
+}) => {
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedPaths, setSelectedPaths] = useState(new Set<string>());
+
+  const handleLongPress = () => {
+    setIsSelectionMode(true);
+  };
+
+  const handleSelectionChange = (paths: string[]) => {
+    const newSelection = new Set(selectedPaths);
+    paths.forEach(path => {
+      if (newSelection.has(path)) {
+        newSelection.delete(path);
+      } else {
+        newSelection.add(path);
+      }
+    });
+    setSelectedPaths(newSelection);
+    onSelectionChange?.(Array.from(newSelection));
+  };
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedPaths(new Set());
+    onSelectionChange?.([]);
+  };
+
+  return (
+    <View style={styles.container}>
+      {data.map((item) => (
+        <FileTreeNode
+          key={item.path}
+          item={item}
+          onFilePress={onFilePress}
+          onSelectionChange={handleSelectionChange}
+          level={0}
+          isSelectionMode={isSelectionMode}
+          selectedPaths={selectedPaths}
+          onLongPress={handleLongPress}
+        />
+      ))}
+    </View>
+  );
+};
+
+const FileTreeNode: React.FC<FileTreeNodeProps> = ({ 
+  item, 
+  onFilePress, 
+  onSelectionChange,
+  level = 0,
+  isSelectionMode,
+  selectedPaths,
+  onLongPress
+}) => {
   const [expanded, setExpanded] = useState(false);
   const isDirectory = item.type === 'dir';
   const hasChildren = isDirectory && item.children && item.children.length > 0;
+  const isSelected = selectedPaths?.has(item.path);
+
+  const getAllChildPaths = (item: FileTreeItem): string[] => {
+    let paths = [item.path];
+    if (item.children) {
+      item.children.forEach(child => {
+        paths = paths.concat(getAllChildPaths(child));
+      });
+    }
+    return paths;
+  };
 
   const handlePress = () => {
-    if (isDirectory) {
+    if (isSelectionMode && onSelectionChange) {
+      const paths = isDirectory ? getAllChildPaths(item) : [item.path];
+      onSelectionChange(paths);
+    } else if (isDirectory) {
       setExpanded(!expanded);
     } else if (onFilePress) {
       onFilePress(item.path);
@@ -37,11 +114,20 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({ item, onFilePress, level = 
     <View style={styles.nodeContainer}>
       <Pressable
         onPress={handlePress}
+        onLongPress={onLongPress}
         style={[
           styles.nodeContent,
           { paddingLeft: level * 20 }
         ]}
       >
+        {isSelectionMode && (
+          <Ionicons
+            name={isSelected ? 'checkbox' : 'square-outline'}
+            size={20}
+            color="#666"
+            style={styles.checkbox}
+          />
+        )}
         {isDirectory && (
           <Ionicons
             name={expanded ? 'chevron-down' : 'chevron-forward'}
@@ -63,31 +149,20 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({ item, onFilePress, level = 
       
       {hasChildren && expanded && (
         <View style={styles.childrenContainer}>
-          {item.children.map((child, index) => (
+          {item.children.map((child) => (
             <FileTreeNode
               key={child.path}
               item={child}
               onFilePress={onFilePress}
+              onSelectionChange={onSelectionChange}
               level={level + 1}
+              isSelectionMode={isSelectionMode}
+              selectedPaths={selectedPaths}
+              onLongPress={onLongPress}
             />
           ))}
         </View>
       )}
-    </View>
-  );
-};
-
-export const FileTree: React.FC<FileTreeProps> = ({ data, onFilePress }) => {
-  return (
-    <View style={styles.container}>
-      {data.map((item) => (
-        <FileTreeNode
-          key={item.path}
-          item={item}
-          onFilePress={onFilePress}
-          level={0}
-        />
-      ))}
     </View>
   );
 };
@@ -112,6 +187,11 @@ const styles = StyleSheet.create({
   },
   icon: {
     marginRight: 12,
+    width: 20,
+    opacity: 0.6,
+  },
+  checkbox: {
+    marginRight: 8,
     width: 20,
     opacity: 0.6,
   },

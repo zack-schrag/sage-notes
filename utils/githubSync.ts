@@ -215,6 +215,39 @@ export async function deleteFile(path: string, sha?: string, message = 'Delete n
     }
 }
 
+export async function getFileInfo(relativePath: string): Promise<{ sha: string; content: string } | null> {
+    try {
+        const token = await getToken();
+        if (!token) {
+            throw new Error('No GitHub token found');
+        }
+
+        const fileUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${relativePath}`;
+        const response = await fetch(fileUrl, {
+            headers: {
+                Authorization: `token ${token}`,
+                Accept: 'application/vnd.github.v3+json',
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                return null;
+            }
+            throw new Error(`GitHub API error: ${response.status}`);
+        }
+
+        const fileData = await response.json();
+        return {
+            sha: fileData.sha,
+            content: Buffer.from(fileData.content, 'base64').toString('utf8')
+        };
+    } catch (error) {
+        console.error('Error getting file info:', error);
+        throw error;
+    }
+}
+
 // Keep track of pending changes and active commits
 let pendingChanges: { [path: string]: {
     timeout: NodeJS.Timeout,

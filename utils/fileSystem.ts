@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system';
+import { getFileMetadata, deleteFile, deleteFileMetadata } from './githubSync';
 
 // Base directory for all our git repositories
 export const REPOS_DIR = `${FileSystem.documentDirectory}repos/`;
@@ -282,7 +283,7 @@ export async function createNewNote(): Promise<{ filePath: string; filename: str
     return { filePath, filename };
 }
 
-export async function deleteFile(path: string, sha?: string): Promise<boolean> {
+export async function deleteLocalFile(path: string, sha?: string): Promise<boolean> {
     try {
         // Delete locally
         await FileSystem.deleteAsync(path, { idempotent: true });
@@ -292,4 +293,29 @@ export async function deleteFile(path: string, sha?: string): Promise<boolean> {
         console.error('Error deleting file:', error);
         throw error;
     }
+}
+
+export async function deleteItems(paths: string[]): Promise<boolean> {
+  try {
+    for (const path of paths) {
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) {
+        // Get the file's metadata before deleting
+        const metadata = await getFileMetadata(path);
+        
+        // Delete from GitHub first if we have the SHA
+        if (metadata?.sha) {
+          await deleteFile(path, metadata.sha);
+          await deleteFileMetadata(path);
+        }
+        
+        // Then delete locally
+        await deleteLocalFile(path);
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error('Error deleting items:', error);
+    return false;
+  }
 }
