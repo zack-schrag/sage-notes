@@ -8,6 +8,7 @@ import { getDirectoryStructure, createNewNote, deleteItems, REPOS_DIR, listMarkd
 import { getToken } from '@/utils/tokenStorage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { syncFromGitHub } from '@/utils/githubSync';
+import { isRepoConfigured } from '@/utils/repoSetup';
 import * as FileSystem from 'expo-file-system';
 import { formatTimeAgo } from '@/utils/dateFormat';
 
@@ -26,10 +27,20 @@ export default function FilesScreen() {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [timeAgoText, setTimeAgoText] = useState<string>('');
+  const [isRepoSetup, setIsRepoSetup] = useState<boolean>(false);
 
   const loadFiles = async () => {
     try {
       setIsLoading(true);
+      
+      const isConfigured = await isRepoConfigured();
+      setIsRepoSetup(isConfigured);
+      
+      if (!isConfigured) {
+        setIsLoading(false);
+        return;
+      }
+
       const token = await getToken();
       if (!token) {
         router.replace('/(tabs)/');
@@ -196,6 +207,20 @@ export default function FilesScreen() {
       <ThemedView style={styles.container}>
         {isLoading ? (
           <ThemedText style={styles.loadingText}>Loading files...</ThemedText>
+        ) : !isRepoSetup ? (
+          <View style={styles.setupContainer}>
+            <IconSymbol name="github" size={48} color="#87A987" />
+            <ThemedText style={styles.setupTitle}>GitHub Repository Required</ThemedText>
+            <ThemedText style={styles.setupText}>
+              To use Sage Notes, you'll need to connect it to a GitHub repository. This allows your notes to be securely stored and synced across devices.
+            </ThemedText>
+            <Pressable
+              onPress={() => router.push('/(tabs)/settings')}
+              style={styles.setupButton}
+            >
+              <ThemedText style={styles.setupButtonText}>Set Up Repository</ThemedText>
+            </Pressable>
+          </View>
         ) : (
           <>
             <View style={styles.treeContainer}>
@@ -392,5 +417,36 @@ const styles = StyleSheet.create({
   recentFileTime: {
     fontSize: 12,
     color: '#666',
+  },
+  setupContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  setupTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  setupText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 24,
+  },
+  setupButton: {
+    backgroundColor: '#87A987',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  setupButtonText: {
+    color: '#1a1a1a',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
