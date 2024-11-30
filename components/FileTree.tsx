@@ -180,9 +180,9 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
         {isDirectory && (
           <Pressable onPress={handleCaretPress}>
             <Ionicons
-              name={expanded ? 'chevron-down' : 'chevron-forward'}
+              name={expanded ? 'folder-open' : 'folder'}
               size={20}
-              color="#666"
+              color="#87A987"
               style={styles.icon}
             />
           </Pressable>
