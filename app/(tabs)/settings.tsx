@@ -1,27 +1,51 @@
 import { StyleSheet, Platform, Pressable, View, TextInput, SafeAreaView } from 'react-native';
 import React from 'react';
-
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { cloneRepository, removeRepository } from '@/utils/fileSystem';
-import { saveToken, getToken, removeToken } from '@/utils/tokenStorage';
+import { saveToken, getToken, removeToken, saveRepoUrl, getRepoUrl, removeRepoUrl } from '@/utils/tokenStorage';
+import { setRepoInfo } from '@/utils/githubSync';
 
 export default function SettingsScreen() {
   const [isCloning, setIsCloning] = React.useState(false);
   const [isRemoving, setIsRemoving] = React.useState(false);
   const [githubToken, setGithubToken] = React.useState('');
   const [showToken, setShowToken] = React.useState(false);
+  const [repoUrl, setRepoUrl] = React.useState('');
 
-  // Load token on component mount
+  // Load token and repo URL on component mount
   React.useEffect(() => {
-    const loadToken = async () => {
+    const loadData = async () => {
       const savedToken = await getToken();
+      const savedRepoUrl = await getRepoUrl();
       if (savedToken) {
         setGithubToken(savedToken);
       }
+      if (savedRepoUrl) {
+        setRepoUrl(savedRepoUrl);
+      }
     };
-    loadToken();
+    loadData();
   }, []);
+
+  const parseRepoUrl = (url: string): { owner: string; name: string } | null => {
+    try {
+      const urlObj = new URL(url);
+      if (urlObj.hostname !== 'github.com') return null;
+      
+      const parts = urlObj.pathname.split('/').filter(Boolean);
+      if (parts.length < 2) return null;
+      
+      return {
+        owner: parts[0],
+        name: parts[1]
+      };
+    } catch {
+      return null;
+    }
+  };
 
   const handleCloneRepo = async () => {
     if (!githubToken.trim()) {
@@ -29,9 +53,22 @@ export default function SettingsScreen() {
       return;
     }
 
+    if (!repoUrl.trim()) {
+      alert('Please enter the GitHub repository URL');
+      return;
+    }
+
+    const repoInfo = parseRepoUrl(repoUrl);
+    if (!repoInfo) {
+      alert('Invalid GitHub repository URL');
+      return;
+    }
+
     try {
       setIsCloning(true);
       await saveToken(githubToken);
+      await saveRepoUrl(repoUrl);
+      setRepoInfo(repoInfo.owner, repoInfo.name);
       await cloneRepository(githubToken);
     } catch (error) {
       console.error('Error in handleCloneRepo:', error);
@@ -46,7 +83,9 @@ export default function SettingsScreen() {
       setIsRemoving(true);
       await removeRepository();
       await removeToken();
+      await removeRepoUrl();
       setGithubToken('');
+      setRepoUrl('');
     } catch (error) {
       console.error('Error in handleRemoveRepo:', error);
       alert('Failed to remove repository');
@@ -58,47 +97,63 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ThemedView style={styles.container}>
-        <View style={styles.section}>
-          <ThemedText style={styles.sectionTitle}>GitHub Repository</ThemedText>
-          
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter GitHub Token"
-              placeholderTextColor="#666"
-              value={githubToken}
-              onChangeText={setGithubToken}
-              secureTextEntry={!showToken}
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="GitHub Repository URL"
+            placeholderTextColor="#666"
+            value={repoUrl}
+            onChangeText={setRepoUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="GitHub Personal Access Token"
+            placeholderTextColor="#666"
+            value={githubToken}
+            onChangeText={setGithubToken}
+            secureTextEntry={!showToken}
+          />
+          <Pressable
+            onPress={() => setShowToken(!showToken)}
+            style={styles.iconButton}
+          >
+            <IconSymbol 
+              name={showToken ? "eye.slash" : "eye"} 
+              size={20} 
+              color="#87A987" 
             />
-            <Pressable
-              onPress={() => setShowToken(!showToken)}
-              style={styles.showHideButton}
-            >
-              <ThemedText>{showToken ? 'Hide' : 'Show'}</ThemedText>
-            </Pressable>
-          </View>
+          </Pressable>
+        </View>
 
-          <View style={styles.buttonContainer}>
-            <Pressable
-              onPress={handleCloneRepo}
-              style={[styles.button, styles.cloneButton]}
-              disabled={isCloning}
-            >
-              <ThemedText style={styles.buttonText}>
-                {isCloning ? 'Cloning...' : 'Clone Repository'}
-              </ThemedText>
-            </Pressable>
+        <View style={styles.actionsContainer}>
+          <Pressable
+            onPress={handleCloneRepo}
+            style={styles.iconButton}
+            disabled={isCloning}
+          >
+            <IconSymbol 
+              name="square.and.arrow.down" 
+              size={24} 
+              color="#87A987" 
+            />
+          </Pressable>
 
-            <Pressable
-              onPress={handleRemoveRepo}
-              style={[styles.button, styles.removeButton]}
-              disabled={isRemoving}
-            >
-              <ThemedText style={styles.buttonText}>
-                {isRemoving ? 'Removing...' : 'Remove Repository'}
-              </ThemedText>
-            </Pressable>
-          </View>
+          <Pressable
+            onPress={handleRemoveRepo}
+            style={styles.iconButton}
+            disabled={isRemoving}
+          >
+            <IconSymbol 
+              name="trash" 
+              size={24} 
+              color="#dc2626" 
+            />
+          </Pressable>
         </View>
       </ThemedView>
     </SafeAreaView>
@@ -112,52 +167,36 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    padding: 20,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 16,
+    padding: 30,
   },
   inputContainer: {
     flexDirection: 'row',
-    marginBottom: 16,
+    alignItems: 'center',
+    marginBottom: 24,
   },
   input: {
     flex: 1,
-    height: 40,
+    height: 44,
     borderWidth: 1,
     borderColor: '#333',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    color: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    color: '#e0e0e0',
     backgroundColor: '#1a1a1a',
-  },
-  showHideButton: {
-    marginLeft: 12,
-    justifyContent: 'center',
-  },
-  buttonContainer: {
-    gap: 12,
-  },
-  button: {
-    height: 44,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cloneButton: {
-    backgroundColor: '#2ecc71',
-  },
-  removeButton: {
-    backgroundColor: '#e74c3c',
-  },
-  buttonText: {
-    color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    gap: 24,
+  },
+  iconButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  iconText: {
+    fontSize: 12,
+    marginTop: 4,
+    color: '#87A987',
   },
 });

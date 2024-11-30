@@ -1,10 +1,10 @@
 import { ensureRepoExists } from './fileSystem';
-import { getToken } from './tokenStorage';
+import { getToken, getRepoUrl } from './tokenStorage';
 import { Buffer } from 'buffer';
 import * as FileSystem from 'expo-file-system';
 
-const REPO_OWNER = 'zack-schrag';
-const REPO_NAME = 'notes';
+let repoOwner = '';
+let repoName = '';
 
 interface CommitFileOptions {
     path: string;
@@ -23,12 +23,40 @@ interface FileMetadata {
 
 let fileMetadata: { [path: string]: FileMetadata } = {};
 
+export function setRepoInfo(owner: string, name: string) {
+    repoOwner = owner;
+    repoName = name;
+}
+
+function parseRepoUrl(url: string): { owner: string; name: string } | null {
+    try {
+        const urlObj = new URL(url);
+        if (urlObj.hostname !== 'github.com') return null;
+        
+        const parts = urlObj.pathname.split('/').filter(Boolean);
+        if (parts.length < 2) return null;
+
+        // Get the repository name and remove .git if present
+        let name = parts[1];
+        if (name.endsWith('.git')) {
+            name = name.slice(0, -4); // Remove .git suffix
+        }
+        
+        return {
+            owner: parts[0],
+            name: name
+        };
+    } catch {
+        return null;
+    }
+}
+
 // Get the relative path from the full file path, preserving folder structure
 // Input: .../repos/notes/folder1/folder2/file.md
 // Output: folder1/folder2/file.md
 export function getRelativePath(fullPath: string): string | null {
     // Look for /repos/REPO_NAME/ in the path and get everything after it
-    const match = fullPath.match(new RegExp(`repos\/${REPO_NAME}\/(.+)`));
+    const match = fullPath.match(new RegExp(`repos\/${repoName}\/(.+)`));
     if (!match) return null;
     return match[1];
 }
@@ -74,7 +102,7 @@ export async function commitFile({ path: fullPath, content, message = 'Update no
 
             console.log('Deleting old file first...');
             // Delete the old file first
-            const deleteUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${oldRelativePath}`;
+            const deleteUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${oldRelativePath}`;
             const deleteResponse = await fetch(deleteUrl, {
                 method: 'DELETE',
                 headers: {
@@ -103,7 +131,7 @@ export async function commitFile({ path: fullPath, content, message = 'Update no
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
-        const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${relativePath}`;
+        const apiUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${relativePath}`;
         
         // Get current file metadata if it exists
         let sha: string | undefined;
@@ -186,7 +214,7 @@ export async function deleteFile(path: string, sha?: string, message = 'Delete n
                 throw new Error('Invalid file path format');
             }
 
-            const deleteUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${relativePath}`;
+            const deleteUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${relativePath}`;
             const deleteResponse = await fetch(deleteUrl, {
                 method: 'DELETE',
                 headers: {
@@ -224,7 +252,7 @@ export async function getFileInfo(relativePath: string): Promise<{ sha: string; 
             throw new Error('No GitHub token found');
         }
 
-        const fileUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${relativePath}`;
+        const fileUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${relativePath}`;
         const response = await fetch(fileUrl, {
             headers: {
                 Authorization: `token ${token}`,
@@ -324,11 +352,24 @@ export async function syncFromGitHub(): Promise<void> {
             throw new Error('No GitHub token found');
         }
 
+        // Load repository info
+        const repoUrl = await getRepoUrl();
+        if (!repoUrl) {
+            throw new Error('No repository URL found');
+        }
+
+        const repoInfo = parseRepoUrl(repoUrl);
+        if (!repoInfo) {
+            throw new Error('Invalid repository URL');
+        }
+
+        setRepoInfo(repoInfo.owner, repoInfo.name);
+
         const baseDir = await ensureRepoExists();
         console.log('[GitHub] Base directory:', baseDir);
-
+        console.log(repoOwner, repoName);
         // Get all files from GitHub
-        const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents`, {
+        const response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/contents`, {
             headers: {
                 Authorization: `token ${token}`,
                 Accept: 'application/vnd.github.v3+json',
