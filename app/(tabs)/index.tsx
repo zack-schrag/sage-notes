@@ -138,6 +138,7 @@ export default function FilesScreen() {
             try {
               await deleteItems(selectedPaths);
               setSelectedPaths([]);
+              setIsSelectionMode(false);
               await loadFiles();
             } catch (error) {
               console.error('Error deleting items:', error);
