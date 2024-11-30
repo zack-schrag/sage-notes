@@ -2,6 +2,7 @@ import { ensureRepoExists } from './fileSystem';
 import { getToken, getRepoUrl } from './tokenStorage';
 import { Buffer } from 'buffer';
 import * as FileSystem from 'expo-file-system';
+import { parseRepoUrl } from './githubUtils';
 
 let repoOwner = '';
 let repoName = '';
@@ -26,29 +27,6 @@ let fileMetadata: { [path: string]: FileMetadata } = {};
 export function setRepoInfo(owner: string, name: string) {
     repoOwner = owner;
     repoName = name;
-}
-
-function parseRepoUrl(url: string): { owner: string; name: string } | null {
-    try {
-        const urlObj = new URL(url);
-        if (urlObj.hostname !== 'github.com') return null;
-        
-        const parts = urlObj.pathname.split('/').filter(Boolean);
-        if (parts.length < 2) return null;
-
-        // Get the repository name and remove .git if present
-        let name = parts[1];
-        if (name.endsWith('.git')) {
-            name = name.slice(0, -4); // Remove .git suffix
-        }
-        
-        return {
-            owner: parts[0],
-            name: name
-        };
-    } catch {
-        return null;
-    }
 }
 
 // Get the relative path from the full file path, preserving folder structure
@@ -348,14 +326,11 @@ export async function syncFromGitHub(): Promise<void> {
     try {
         console.log('[GitHub] Starting sync');
         const token = await getToken();
-        if (!token) {
-            throw new Error('No GitHub token found');
-        }
-
-        // Load repository info
         const repoUrl = await getRepoUrl();
-        if (!repoUrl) {
-            throw new Error('No repository URL found');
+        
+        if (!token || !repoUrl) {
+            console.error('Missing token or repo URL');
+            return;
         }
 
         const repoInfo = parseRepoUrl(repoUrl);
@@ -367,7 +342,7 @@ export async function syncFromGitHub(): Promise<void> {
 
         const baseDir = await ensureRepoExists();
         console.log('[GitHub] Base directory:', baseDir);
-        console.log(repoOwner, repoName);
+
         // Get all files from GitHub
         const response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/contents`, {
             headers: {
@@ -437,4 +412,8 @@ export async function syncFromGitHub(): Promise<void> {
         console.error('Error syncing from GitHub:', error);
         throw error;
     }
+}
+
+async function getFileContent(path: string): Promise<string | null> {
+    // implementation
 }

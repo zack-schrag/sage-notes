@@ -1,25 +1,69 @@
 import * as FileSystem from 'expo-file-system';
-import { getFileMetadata, deleteFile, deleteFileMetadata, commitFile } from './githubSync';
+import { setRepoInfo, getFileMetadata, deleteFile, deleteFileMetadata, commitFile } from './githubSync';
+import { parseRepoUrl } from './githubUtils';
+import { getRepoUrl } from './tokenStorage';
 
 // Base directory for all our git repositories
 export const REPOS_DIR = `${FileSystem.documentDirectory}repos/`;
 
-// Repository details
-const REPO_OWNER = 'zack-schrag';
-const REPO_NAME = 'notes';
-
 interface GitHubContent {
     name: string;
     path: string;
-    type: 'file' | 'dir';
-    download_url?: string;
+    type: string;
+    download_url: string | null;
 }
 
 interface FileTreeItem {
   name: string;
   path: string;
-  type: 'file' | 'dir';
+  type: 'file' | 'directory';
   children?: FileTreeItem[];
+}
+
+interface GitHubFile {
+  name: string;
+  path: string;
+  sha: string;
+  type: string;
+  download_url: string | null;
+}
+
+async function getRepoInfo(): Promise<{ owner: string; name: string; repoDir: string }> {
+  const repoUrl = await getRepoUrl();
+  if (!repoUrl) {
+    throw new Error('No repository URL found');
+  }
+  const repoInfo = parseRepoUrl(repoUrl);
+  if (!repoInfo) {
+    throw new Error('Invalid repository URL');
+  }
+  return {
+    ...repoInfo,
+    repoDir: `${REPOS_DIR}${repoInfo.name}`
+  };
+}
+
+async function fetchDirectoryContents(path: string, token: string, repoOwner: string, repoName: string): Promise<GitHubContent[]> {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${path}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching directory contents:', error);
+    throw error;
+  }
 }
 
 export async function ensureReposDirExists() {
@@ -28,24 +72,6 @@ export async function ensureReposDirExists() {
         console.log('Creating repos directory...');
         await FileSystem.makeDirectoryAsync(REPOS_DIR, { intermediates: true });
     }
-}
-
-async function fetchDirectoryContents(path: string = '', token: string): Promise<GitHubContent[]> {
-    const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}`;
-    console.log('Fetching contents from:', url);
-    
-    const response = await fetch(url, {
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/vnd.github.v3+json'
-        }
-    });
-
-    if (!response.ok) {
-        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
 }
 
 async function downloadFile(downloadUrl: string, localPath: string, token: string) {
@@ -62,10 +88,18 @@ async function downloadFile(downloadUrl: string, localPath: string, token: strin
     console.log('Download complete:', response);
 }
 
-export async function cloneRepository(token: string) {
+export async function cloneRepository(repoUrl: string, token: string) {
     try {
+        const repoInfo = parseRepoUrl(repoUrl);
+        if (!repoInfo) {
+            throw new Error('Invalid repository URL');
+        }
+
+        const { owner, name } = repoInfo;
+        setRepoInfo(owner, name);
+
         await ensureReposDirExists();
-        const localRepoDir = `${REPOS_DIR}${REPO_NAME}`;
+        const localRepoDir = `${REPOS_DIR}${name}`;
         console.log('Cloning to directory:', localRepoDir);
 
         // Check if repository already exists
@@ -80,7 +114,7 @@ export async function cloneRepository(token: string) {
 
         // Recursively fetch and download all files
         async function processDirectory(path: string = '', currentDir: string = localRepoDir) {
-            const contents = await fetchDirectoryContents(path, token);
+            const contents = await fetchDirectoryContents(path, token, owner, name);
             
             for (const item of contents) {
                 const localItemPath = `${currentDir}/${item.name}`;
@@ -105,7 +139,7 @@ export async function cloneRepository(token: string) {
 
 export async function listMarkdownFiles() {
     try {
-        const repoDir = `${REPOS_DIR}${REPO_NAME}`;
+        const { repoDir } = await getRepoInfo();
         console.log('Checking repository directory:', repoDir);
         const dirInfo = await FileSystem.getInfoAsync(repoDir);
         console.log('Directory info:', dirInfo);
@@ -149,18 +183,19 @@ export async function listMarkdownFiles() {
 
 export async function readMarkdownFile(filename: string) {
     try {
-        const fullPath = `${REPOS_DIR}${REPO_NAME}/${filename}`;
+        const { repoDir } = await getRepoInfo();
+        const fullPath = `${repoDir}/${filename}`;
         const content = await FileSystem.readAsStringAsync(fullPath);
         return content;
     } catch (error) {
         console.error('Error reading markdown file:', error);
-        return null;
+        throw error;
     }
 }
 
 export async function removeRepository() {
     try {
-        const repoDir = `${REPOS_DIR}${REPO_NAME}`;
+        const { repoDir } = await getRepoInfo();
         console.log('Attempting to remove repository at:', repoDir);
         const dirInfo = await FileSystem.getInfoAsync(repoDir);
         
@@ -178,18 +213,20 @@ export async function removeRepository() {
     }
 }
 
-export async function getDirectoryStructure(dir: string = `${REPOS_DIR}${REPO_NAME}`): Promise<FileTreeItem[]> {
+export async function getDirectoryStructure(dir?: string): Promise<FileTreeItem[]> {
   try {
-    const dirInfo = await FileSystem.getInfoAsync(dir);
+    const { repoDir } = await getRepoInfo();
+    const baseDir = dir || repoDir;
+    const dirInfo = await FileSystem.getInfoAsync(baseDir);
     if (!dirInfo.exists) {
       return [];
     }
 
-    const contents = await FileSystem.readDirectoryAsync(dir);
+    const contents = await FileSystem.readDirectoryAsync(baseDir);
     const items: FileTreeItem[] = [];
 
     for (const name of contents) {
-      const path = `${dir}/${name}`;
+      const path = `${baseDir}/${name}`;
       const info = await FileSystem.getInfoAsync(path);
       
       if (info.exists) {
@@ -242,16 +279,16 @@ export async function saveFile(path: string, content: string): Promise<boolean> 
 }
 
 export async function ensureNotesDirectoryExists() {
-    const notesDir = `${REPOS_DIR}${REPO_NAME}/notes`;
+    const { repoDir } = await getRepoInfo();
+    const notesDir = `${repoDir}/notes`;
     const dirInfo = await FileSystem.getInfoAsync(notesDir);
     if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(notesDir, { intermediates: true });
     }
-    return notesDir;
 }
 
 export async function ensureRepoExists() {
-    const repoDir = `${REPOS_DIR}${REPO_NAME}`;
+    const { repoDir } = await getRepoInfo();
     const dirInfo = await FileSystem.getInfoAsync(repoDir);
     if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(repoDir, { intermediates: true });
@@ -260,12 +297,12 @@ export async function ensureRepoExists() {
 }
 
 export async function createNewNote(): Promise<{ filePath: string; filename: string }> {
-    const baseDir = await ensureRepoExists();
+    const { repoDir } = await getRepoInfo();
     
     // Find an available filename
     let counter = 0;
     let filename = 'untitled.md';
-    let filePath = `${baseDir}/${filename}`;
+    let filePath = `${repoDir}/${filename}`;
     
     // Keep incrementing counter until we find an unused filename
     while (true) {
@@ -275,7 +312,7 @@ export async function createNewNote(): Promise<{ filePath: string; filename: str
         }
         counter++;
         filename = counter === 0 ? 'untitled.md' : `untitled_${counter}.md`;
-        filePath = `${baseDir}/${filename}`;
+        filePath = `${repoDir}/${filename}`;
     }
     
     const initialContent = '# New Note\n\nStart writing here...\n';

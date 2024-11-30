@@ -1,7 +1,5 @@
-import { getToken } from './tokenStorage';
-
-const REPO_OWNER = 'zack-schrag';
-const REPO_NAME = 'notes';
+import { getToken, getRepoUrl } from './tokenStorage';
+import { parseRepoUrl } from './githubUtils';
 
 interface GitHubFileInfo {
   name: string;
@@ -16,12 +14,21 @@ interface GitHubFileInfo {
 export async function getFileMetadata(filePath: string): Promise<GitHubFileInfo | null> {
   try {
     const token = await getToken();
-    if (!token) {
-      throw new Error('No GitHub token found');
+    const repoUrl = await getRepoUrl();
+    
+    if (!token || !repoUrl) {
+      console.error('Missing token or repo URL');
+      return null;
+    }
+
+    const repoInfo = parseRepoUrl(repoUrl);
+    if (!repoInfo) {
+      console.error('Invalid repo URL');
+      return null;
     }
 
     // Get commits for the file to find creation date
-    const commitsUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${filePath}&page=1&per_page=1`;
+    const commitsUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${filePath}&page=1&per_page=1`;
     const commitsResponse = await fetch(commitsUrl, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -37,7 +44,7 @@ export async function getFileMetadata(filePath: string): Promise<GitHubFileInfo 
     const firstCommit = commits[0];
 
     // Get current file info
-    const fileUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${filePath}`;
+    const fileUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/contents/${filePath}`;
     const fileResponse = await fetch(fileUrl, {
       headers: {
         'Authorization': `Bearer ${token}`,

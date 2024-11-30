@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { cloneRepository, removeRepository } from '@/utils/fileSystem';
 import { saveToken, getToken, removeToken, saveRepoUrl, getRepoUrl, removeRepoUrl } from '@/utils/tokenStorage';
 import { setRepoInfo } from '@/utils/githubSync';
+import { parseRepoUrl } from '@/utils/githubUtils';
 
 export default function SettingsScreen() {
   const [isCloning, setIsCloning] = React.useState(false);
@@ -30,23 +31,6 @@ export default function SettingsScreen() {
     loadData();
   }, []);
 
-  const parseRepoUrl = (url: string): { owner: string; name: string } | null => {
-    try {
-      const urlObj = new URL(url);
-      if (urlObj.hostname !== 'github.com') return null;
-      
-      const parts = urlObj.pathname.split('/').filter(Boolean);
-      if (parts.length < 2) return null;
-      
-      return {
-        owner: parts[0],
-        name: parts[1]
-      };
-    } catch {
-      return null;
-    }
-  };
-
   const handleCloneRepo = async () => {
     if (!githubToken.trim()) {
       alert('Please enter your GitHub token');
@@ -58,21 +42,20 @@ export default function SettingsScreen() {
       return;
     }
 
-    const repoInfo = parseRepoUrl(repoUrl);
-    if (!repoInfo) {
-      alert('Invalid GitHub repository URL');
-      return;
-    }
-
     try {
       setIsCloning(true);
-      await saveToken(githubToken);
-      await saveRepoUrl(repoUrl);
+      const repoInfo = parseRepoUrl(repoUrl);
+      if (!repoInfo) {
+        throw new Error('Invalid repository URL');
+      }
+
       setRepoInfo(repoInfo.owner, repoInfo.name);
-      await cloneRepository(githubToken);
+      await saveRepoUrl(repoUrl);
+      await saveToken(githubToken);
+      await cloneRepository(repoUrl, githubToken);
     } catch (error) {
       console.error('Error in handleCloneRepo:', error);
-      alert('Failed to clone repository. Please check your token and try again.');
+      alert('Failed to clone repository');
     } finally {
       setIsCloning(false);
     }

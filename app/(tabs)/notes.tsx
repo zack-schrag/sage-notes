@@ -17,9 +17,9 @@ import { parseMarkdown, addTagToMarkdown, removeTagFromMarkdown } from '@/utils/
 import { AddTagModal } from '@/components/AddTagModal';
 import { scheduleCommit, isActivelyCommitting, commitAllPendingChanges, commitFile, getRelativePath, deleteFile, getFileInfo } from '@/utils/githubSync';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { getRepoUrl } from '@/utils/tokenStorage';
+import { parseRepoUrl } from '@/utils/githubUtils';
 
-const REPO_OWNER = 'zack-schrag';
-const REPO_NAME = 'notes';
 const initialMarkdown = `# Welcome to Your Markdown Editor
 
 Start typing here to create your notes...
@@ -96,6 +96,12 @@ export default function NotesScreen() {
 
                 // Phase 2: Background GitHub metadata load
                 const loadGitHubMetadata = async () => {
+                    const repoUrl = await getRepoUrl();
+                    if (!repoUrl) return;
+
+                    const repoInfo = parseRepoUrl(repoUrl);
+                    if (!repoInfo) return;
+
                     const relativePath = getRelativePath(filePath);
                     if (!relativePath) return;
 
@@ -105,7 +111,7 @@ export default function NotesScreen() {
                         if (!fileInfo) return;
 
                         const sha = fileInfo.sha;
-                        const htmlUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/blob/main/${relativePath}`;
+                        const htmlUrl = `https://github.com/${repoInfo.owner}/${repoInfo.name}/blob/main/${relativePath}`;
 
                         // Get commit history for dates
                         const token = await getToken();
@@ -122,13 +128,13 @@ export default function NotesScreen() {
 
                         if (!hasFrontmatterCreated || !hasFrontmatterUpdated) {
                             // Get the latest commit (most recent)
-                            const latestCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
+                            const latestCommitUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${relativePath}&per_page=1`;
                             const latestCommitResponse = await fetch(latestCommitUrl, { headers });
                             const latestCommits = await latestCommitResponse.json();
                             lastCommitDate = latestCommits[0]?.commit?.committer?.date;
 
                             // Get total number of commits for this file
-                            const commitCountUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1`;
+                            const commitCountUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${relativePath}&per_page=1`;
                             const countResponse = await fetch(commitCountUrl, { headers });
                             const linkHeader = countResponse.headers.get('link');
                             let totalPages = 1;
@@ -141,7 +147,7 @@ export default function NotesScreen() {
                             }
 
                             // Get the first commit (oldest) using the correct page number
-                            const firstCommitUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${relativePath}&per_page=1&page=${totalPages}`;
+                            const firstCommitUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${relativePath}&per_page=1&page=${totalPages}`;
                             const firstCommitResponse = await fetch(firstCommitUrl, { headers });
                             const firstCommits = await firstCommitResponse.json();
                             firstCommitDate = firstCommits[0]?.commit?.committer?.date;
@@ -237,56 +243,62 @@ export default function NotesScreen() {
                 // Schedule commit if we have a file path
                 if (filePath) {
                     // Check if file exists on GitHub and has been modified
+                    const repoUrl = await getRepoUrl();
+                    if (!repoUrl) return;
+
+                    const repoInfo = parseRepoUrl(repoUrl);
+                    if (!repoInfo) return;
+
                     const relativePath = getRelativePath(filePath);
-                    if (relativePath) {
-                        const fileInfo = await getFileInfo(relativePath);
-                        if (fileInfo && fileInfo.sha !== metadata.sha) {
-                            // Show conflict resolution dialog
-                            Alert.alert(
-                                'File Modified',
-                                'This file has been modified on GitHub. How would you like to proceed?',
-                                [
-                                    {
-                                        text: 'View on GitHub',
-                                        onPress: () => {
-                                            if (metadata.htmlUrl) {
-                                                Linking.openURL(metadata.htmlUrl);
-                                            }
-                                        }
-                                    },
-                                    {
-                                        text: 'Keep My Changes',
-                                        onPress: async () => {
-                                            // Update SHA and save changes
-                                            setMetadata(prev => ({ ...prev, sha: fileInfo.sha }));
-                                            
-                                            // Reconstruct content with frontmatter
-                                            const frontmatter = {
-                                                tags: metadata.tags
-                                            };
-                                            const fullContent = `---\ntags: [${frontmatter.tags.join(', ')}]\n---\n${text}`;
-                                            scheduleCommit(filePath, fullContent);
-                                        }
-                                    },
-                                    {
-                                        text: 'Use GitHub Version',
-                                        style: 'destructive',
-                                        onPress: () => {
-                                            // Parse the GitHub content and update local state
-                                            const { frontmatter, content: markdownContent } = parseMarkdown(fileInfo.content);
-                                            setMarkdownText(markdownContent);
-                                            setMetadata(prev => ({ 
-                                                ...prev, 
-                                                sha: fileInfo.sha,
-                                                tags: frontmatter.tags || prev.tags 
-                                            }));
+                    if (!relativePath) return;
+
+                    const fileInfo = await getFileInfo(relativePath);
+                    if (fileInfo && fileInfo.sha !== metadata.sha) {
+                        // Show conflict resolution dialog
+                        Alert.alert(
+                            'File Modified',
+                            'This file has been modified on GitHub. How would you like to proceed?',
+                            [
+                                {
+                                    text: 'View on GitHub',
+                                    onPress: () => {
+                                        if (metadata.htmlUrl) {
+                                            Linking.openURL(metadata.htmlUrl);
                                         }
                                     }
-                                ],
-                                { cancelable: false }
-                            );
-                            return;
-                        }
+                                },
+                                {
+                                    text: 'Keep My Changes',
+                                    onPress: async () => {
+                                        // Update SHA and save changes
+                                        setMetadata(prev => ({ ...prev, sha: fileInfo.sha }));
+                                        
+                                        // Reconstruct content with frontmatter
+                                        const frontmatter = {
+                                            tags: metadata.tags
+                                        };
+                                        const fullContent = `---\ntags: [${frontmatter.tags.join(', ')}]\n---\n${text}`;
+                                        scheduleCommit(filePath, fullContent);
+                                    }
+                                },
+                                {
+                                    text: 'Use GitHub Version',
+                                    style: 'destructive',
+                                    onPress: () => {
+                                        // Parse the GitHub content and update local state
+                                        const { frontmatter, content: markdownContent } = parseMarkdown(fileInfo.content);
+                                        setMarkdownText(markdownContent);
+                                        setMetadata(prev => ({ 
+                                            ...prev, 
+                                            sha: fileInfo.sha,
+                                            tags: frontmatter.tags || prev.tags 
+                                        }));
+                                    }
+                                }
+                            ],
+                            { cancelable: false }
+                        );
+                        return;
                     }
 
                     // No conflicts, proceed with commit
