@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, View, SafeAreaView, Pressable, Alert, ScrollView, RefreshControl, Platform } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { FileTree } from '@/components/FileTree';
@@ -23,6 +23,7 @@ export default function FilesScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const isSelectionModeRef = useRef(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
@@ -108,6 +109,10 @@ export default function FilesScreen() {
     return () => clearInterval(timer);
   }, [lastSyncTime]);
 
+  useEffect(() => {
+    isSelectionModeRef.current = isSelectionMode;
+  }, [isSelectionMode]);
+
   const handleFilePress = (path: string) => {
     router.push({
       pathname: '/(tabs)/notes',
@@ -151,7 +156,8 @@ export default function FilesScreen() {
               await deleteItems(selectedPaths);
               setSelectedPaths([]);
               setIsSelectionMode(false);
-              await loadFiles();
+              isSelectionModeRef.current = false;
+              await handleSync();
             } catch (error) {
               console.error('Error deleting items:', error);
               Alert.alert('Error', 'Failed to delete some items');
@@ -163,7 +169,11 @@ export default function FilesScreen() {
   };
 
   const handleSync = async () => {
-    if (isSyncing) return;
+    console.log('Syncing...', isSelectionModeRef.current);
+    if (isSyncing || isSelectionModeRef.current) {
+      console.log('Already syncing or in selection mode');
+      return;
+    }
     
     try {
       setIsSyncing(true);
@@ -199,7 +209,7 @@ export default function FilesScreen() {
       syncInterval = setInterval(() => {
         console.log('Running background sync...');
         handleSync();
-      }, 5 * 60 * 1000); // 5 minutes in milliseconds
+      }, 0.5 * 60 * 1000); // 5 minutes in milliseconds
     };
 
     startBackgroundSync();
