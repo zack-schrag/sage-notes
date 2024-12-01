@@ -47,6 +47,7 @@ export default function FilesScreen() {
         return;
       }
 
+      // Get directory structure first - this reads local files
       const structure = await getDirectoryStructure();
       setFileTree(structure);
 
@@ -166,8 +167,17 @@ export default function FilesScreen() {
     
     try {
       setIsSyncing(true);
+      
+      // First sync with GitHub - this downloads all files
+      console.log('[Sync] Starting GitHub sync');
       await syncFromGitHub();
+      console.log('[Sync] GitHub sync complete');
+      
+      // Then reload the file tree and recent files
+      console.log('[Sync] Loading files');
       await loadFiles();
+      console.log('[Sync] Files loaded');
+      
       setLastSyncTime(new Date());
     } catch (error) {
       console.error('Error syncing with GitHub:', error);
