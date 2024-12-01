@@ -209,7 +209,7 @@ export default function FilesScreen() {
       syncInterval = setInterval(() => {
         console.log('Running background sync...');
         handleSync();
-      }, 0.5 * 60 * 1000); // 5 minutes in milliseconds
+      }, 5 * 60 * 1000); // 5 minutes in milliseconds
     };
 
     startBackgroundSync();
