@@ -663,29 +663,29 @@ export default function NotesScreen() {
             <SafeAreaView style={styles.container}>
                 <ParallaxScrollView
                     headerBackgroundColor={{ light: '#1a1a1a', dark: '#1a1a1a' }}
-                    headerHeight={220}
+                    headerHeight={Platform.select({
+                        ios: 150,
+                        android: 200,
+                    })}
+                    contentContainerStyle={{ marginTop: 0, paddingTop: 0 }}
                     headerImage={<MetadataHeader />}>
-                    <View style={{ flex: 1 }}>
-                        <SafeAreaView style={[styles.container, { backgroundColor: '#1a1a1a' }]}>
-                            <View style={[styles.editorContainer, { backgroundColor: '#1a1a1a' }]}>
-                                {!isPreviewMode ? (
-                                    <TextInput
-                                        multiline
-                                        value={markdownText}
-                                        onChangeText={handleTextChange}
-                                        style={[styles.textInput, { backgroundColor: '#1a1a1a' }]}
-                                        placeholder="Start typing your markdown..."
-                                        placeholderTextColor="#666"
-                                    />
-                                ) : (
-                                    <ScrollView style={[styles.previewContainer, { backgroundColor: '#1a1a1a' }]}>
-                                        <Markdown style={markdownStyles}>
-                                            {parseMarkdown(markdownText).content}
-                                        </Markdown>
-                                    </ScrollView>
-                                )}
-                            </View>
-                        </SafeAreaView>
+                    <View style={[styles.editorContainer, { marginTop: 0, paddingTop: 0 }]}>
+                        {!isPreviewMode ? (
+                            <TextInput
+                                multiline
+                                value={markdownText}
+                                onChangeText={handleTextChange}
+                                style={[styles.textInput, { backgroundColor: '#1a1a1a' }]}
+                                placeholder="Start typing your markdown..."
+                                placeholderTextColor="#666"
+                            />
+                        ) : (
+                            <ScrollView style={[styles.previewContainer, { backgroundColor: '#1a1a1a' }]}>
+                                <Markdown style={markdownStyles}>
+                                    {parseMarkdown(markdownText).content}
+                                </Markdown>
+                            </ScrollView>
+                        )}
                     </View>
                 </ParallaxScrollView>
                 <Pressable 
@@ -711,11 +711,17 @@ const styles = StyleSheet.create({
     metadataContainer: {
         backgroundColor: 'transparent',
         width: '100%',
-        height: 210
+        height: Platform.select({
+            ios: 150,
+            android: 200,
+        }),
+        marginBottom: 0,
+        paddingBottom: 0,
     },
     metadataContent: {
         flex: 1,
-        paddingBottom: 8,
+        paddingBottom: 0,
+        marginBottom: 0,
         justifyContent: 'flex-end'
     },
     filenameContainer: {
@@ -818,7 +824,7 @@ const styles = StyleSheet.create({
         minHeight: '100%',
         paddingTop: Platform.select({
             ios: 0,
-            android: 24,
+            android: 0,
         }),
         paddingHorizontal: Platform.select({
             ios: 0,
@@ -831,35 +837,22 @@ const styles = StyleSheet.create({
     },
     toggleButton: {
         position: 'absolute',
-        right: Platform.select({
-            ios: 20,
-            android: 16,
-        }),
-        top: Platform.select({
-            ios: 220,
-            android: 232,
-        }),
-        zIndex: 999,
-        padding: Platform.select({
-            ios: 10,
-            android: 16,
-        }),
-        width: Platform.select({
-            ios: 36,
-            android: 56,
-        }),
-        height: Platform.select({
-            ios: 36,
-            android: 56,
-        }),
+        right: 20,
+        bottom: Platform.OS === 'ios' ? 100 : 20,
         backgroundColor: '#2a2a2a',
-        borderRadius: Platform.select({
-            ios: 18,
-            android: 28,
-        }),
-        alignItems: 'center',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         justifyContent: 'center',
-        elevation: 4,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
     },
     textInput: {
         flex: 1,
