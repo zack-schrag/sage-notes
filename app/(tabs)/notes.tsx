@@ -14,7 +14,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ensureRepoExists, saveFile, getDirectoryStructure } from '@/utils/fileSystem';
 import { getToken, formatDate } from '@/utils/githubApi';
 import { parseMarkdown, addTagToMarkdown, removeTagFromMarkdown } from '@/utils/markdownParser';
-import { scheduleCommit, isActivelyCommitting, commitAllPendingChanges, commitFile, getRelativePath, deleteFile, getFileInfo } from '@/utils/githubSync';
+import { scheduleCommit, isActivelyCommitting, commitAllPendingChanges, commitFile, getRelativePath, deleteFile, getFileInfo, syncFile } from '@/utils/githubSync';
 import { SyncIndicator } from '@/components/SyncIndicator';
 import { getRepoUrl } from '@/utils/tokenStorage';
 import { parseRepoUrl } from '@/utils/githubUtils';
@@ -63,6 +63,7 @@ export default function NotesScreen() {
     const [renameTimeout, setRenameTimeout] = useState<NodeJS.Timeout | null>(null);
     const [selectionStart, setSelectionStart] = useState(0);
     const [isEditingTags, setIsEditingTags] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const tagAnimationsRef = useRef<Animated.Value[]>([]);
     const { width } = useWindowDimensions();
 
@@ -195,19 +196,16 @@ export default function NotesScreen() {
         };
     }, [filePath]);
 
-    // Handle app state changes
     useEffect(() => {
-        const subscription = AppState.addEventListener('change', (nextAppState) => {
+        const subscription = AppState.addEventListener('change', async (nextAppState) => {
             if (nextAppState === 'background' || nextAppState === 'inactive') {
-                // Commit any pending changes before the app goes to background
-                commitAllPendingChanges().catch(console.error);
+                console.log('App going to background, committing pending changes...');
+                await commitAllPendingChanges();
             }
         });
 
         return () => {
             subscription.remove();
-            // Also commit changes when unmounting the component
-            commitAllPendingChanges().catch(console.error);
         };
     }, []);
 
@@ -272,10 +270,12 @@ export default function NotesScreen() {
     const handleTextChange = useCallback((text: string) => {
         setMarkdownText(text);
 
+        // Clear any existing save timeout
         if (saveTimeout) {
             clearTimeout(saveTimeout);
         }
 
+        // Set up a new timeout for saving
         const timeout = setTimeout(async () => {
             try {
                 // First save locally
@@ -283,66 +283,6 @@ export default function NotesScreen() {
 
                 // Schedule commit if we have a file path
                 if (filePath) {
-                    // Check if file exists on GitHub and has been modified
-                    const repoUrl = await getRepoUrl();
-                    if (!repoUrl) return;
-
-                    const repoInfo = parseRepoUrl(repoUrl);
-                    if (!repoInfo) return;
-
-                    const relativePath = getRelativePath(filePath);
-                    if (!relativePath) return;
-
-                    const fileInfo = await getFileInfo(relativePath);
-                    if (fileInfo && fileInfo.sha !== metadata.sha) {
-                        // Show conflict resolution dialog
-                        Alert.alert(
-                            'File Modified',
-                            'This file has been modified on GitHub. How would you like to proceed?',
-                            [
-                                {
-                                    text: 'View on GitHub',
-                                    onPress: () => {
-                                        if (metadata.htmlUrl) {
-                                            Linking.openURL(metadata.htmlUrl);
-                                        }
-                                    }
-                                },
-                                {
-                                    text: 'Keep My Changes',
-                                    onPress: async () => {
-                                        // Update SHA and save changes
-                                        setMetadata(prev => ({ ...prev, sha: fileInfo.sha }));
-                                        
-                                        // Reconstruct content with frontmatter
-                                        const frontmatter = {
-                                            tags: metadata.tags
-                                        };
-                                        const fullContent = `---\ntags: [${frontmatter.tags.join(', ')}]\n---\n${text}`;
-                                        scheduleCommit(filePath, fullContent);
-                                    }
-                                },
-                                {
-                                    text: 'Use GitHub Version',
-                                    style: 'destructive',
-                                    onPress: () => {
-                                        // Parse the GitHub content and update local state
-                                        const { frontmatter, content: markdownContent } = parseMarkdown(fileInfo.content);
-                                        setMarkdownText(markdownContent);
-                                        setMetadata(prev => ({ 
-                                            ...prev, 
-                                            sha: fileInfo.sha,
-                                            tags: frontmatter.tags || prev.tags 
-                                        }));
-                                    }
-                                }
-                            ],
-                            { cancelable: false }
-                        );
-                        return;
-                    }
-
-                    // No conflicts, proceed with commit
                     const frontmatter = {
                         tags: metadata.tags
                     };
@@ -352,10 +292,10 @@ export default function NotesScreen() {
             } catch (error) {
                 console.error('Error in auto-save:', error);
             }
-        }, 1000);
+        }, 1000); // Local save still happens quickly
 
         setSaveTimeout(timeout);
-    }, [saveTimeout, debouncedSave, filePath, metadata.tags, metadata.sha, metadata.htmlUrl]);
+    }, [saveTimeout, debouncedSave, filePath, metadata.tags]);
 
     const handleAddTag = useCallback(async (newTag: string) => {
         const updatedMarkdown = addTagToMarkdown(markdownText, newTag);
@@ -531,6 +471,29 @@ export default function NotesScreen() {
         }
     };
 
+    const handleToggleEditingTags = () => {
+        setIsEditingTags(!isEditingTags);
+    };
+
+    const onRefresh = useCallback(async () => {
+        if (!filePath) return;
+        
+        setRefreshing(true);
+        try {
+            // Force fresh data from GitHub
+            const fileData = await syncFile(filePath);
+            if (fileData) {
+                setMarkdownText(fileData.content);
+                // Update metadata if needed
+            }
+        } catch (error) {
+            console.error('Failed to refresh:', error);
+            // Show error to user
+        } finally {
+            setRefreshing(false);
+        }
+    }, [filePath]);
+
     const MetadataHeader = () => (
         <View style={styles.metadataContainer}>
             <SafeAreaView style={styles.metadataContent}>
@@ -668,7 +631,10 @@ export default function NotesScreen() {
                         android: 200,
                     })}
                     contentContainerStyle={{ marginTop: 0, paddingTop: 0 }}
-                    headerImage={<MetadataHeader />}>
+                    headerImage={<MetadataHeader />}
+                    onRefresh={onRefresh}
+                    refreshing={refreshing}
+                    >
                     <View style={[styles.editorContainer, { marginTop: 0, paddingTop: 0 }]}>
                         {!isPreviewMode ? (
                             <TextInput

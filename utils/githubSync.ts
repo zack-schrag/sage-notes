@@ -24,6 +24,9 @@ interface FileMetadata {
 
 let fileMetadata: { [path: string]: FileMetadata } = {};
 
+// Track which files we've cached
+const fileCache = new Map<string, { sha: string, content: string }>();
+
 export function setRepoInfo(owner: string, name: string) {
     repoOwner = owner;
     repoName = name;
@@ -256,6 +259,93 @@ export async function getFileInfo(relativePath: string): Promise<{ sha: string; 
     }
 }
 
+export function clearFileCache(path?: string) {
+    if (path) {
+        fileCache.delete(path);
+    } else {
+        fileCache.clear();
+    }
+}
+
+async function getFileFromGithub(path: string, forceFresh = false): Promise<{ content: string; sha: string } | null> {
+    try {
+        // Check cache first unless forceFresh is true
+        if (!forceFresh && fileCache.has(path)) {
+            return fileCache.get(path)!;
+        }
+
+        const token = await getToken();
+        if (!token) {
+            throw new Error('No GitHub token found');
+        }
+
+        const fileUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${path}`;
+        const response = await fetch(fileUrl, {
+            headers: {
+                Authorization: `token ${token}`,
+                Accept: 'application/vnd.github.v3+json',
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                return null;
+            }
+            throw new Error(`GitHub API error: ${response.status}`);
+        }
+
+        const fileData = await response.json();
+        const content = Buffer.from(fileData.content, 'base64').toString('utf8');
+        const result = { content, sha: fileData.sha };
+        fileCache.set(path, result);
+        return result;
+    } catch (error: any) {
+        if (error.status === 404) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+export async function syncFile(path: string): Promise<{ content: string; sha: string } | null> {
+    // Clear cache for this file to ensure fresh data
+    clearFileCache(path);
+    return getFileFromGithub(path, true);
+}
+
+export async function syncAllFiles(): Promise<void> {
+    // Clear entire cache before syncing
+    clearFileCache();
+    
+    try {
+        const token = await getToken();
+        if (!token) {
+            throw new Error('No GitHub token found');
+        }
+
+        const response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/contents`, {
+            headers: {
+                Authorization: `token ${token}`,
+                Accept: 'application/vnd.github.v3+json',
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`);
+        }
+
+        const files = await response.json();
+        for (const file of files) {
+            if (file.type === 'file' && file.path.endsWith('.md')) {
+                await getFileFromGithub(file.path, true);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to sync all files:', error);
+        throw error;
+    }
+}
+
 // Keep track of pending changes and active commits
 let pendingChanges: { [path: string]: {
     timeout: NodeJS.Timeout,
@@ -267,14 +357,77 @@ export function isActivelyCommitting(path: string): boolean {
     return activeCommits.has(path);
 }
 
-export function scheduleCommit(path: string, content: string, delay = 3000) {
-    console.log('Scheduling commit for:', path);
-    // Clear any existing timeout for this file
+export async function scheduleCommit(path: string, content: string, delay = 30000) {
+    // Check if file exists on GitHub and has been modified
+    const repoUrl = await getRepoUrl();
+    if (!repoUrl) return;
+
+    const repoInfo = parseRepoUrl(repoUrl);
+    if (!repoInfo) return;
+
+    const relativePath = getRelativePath(path);
+    if (!relativePath) return;
+
+    const fileInfo = await getFileInfo(relativePath);
+    const currentMetadata = await getFileMetadata(path);
+    
+    if (fileInfo && currentMetadata && fileInfo.sha !== currentMetadata.sha) {
+        return new Promise((resolve) => {
+            Alert.alert(
+                'File Modified',
+                'This file has been modified on GitHub. How would you like to proceed?',
+                [
+                    {
+                        text: 'View on GitHub',
+                        onPress: () => {
+                            if (currentMetadata.htmlUrl) {
+                                Linking.openURL(currentMetadata.htmlUrl);
+                            }
+                            resolve(false);
+                        }
+                    },
+                    {
+                        text: 'Keep My Changes',
+                        onPress: async () => {
+                            try {
+                                await commitFile({ 
+                                    path, 
+                                    content,
+                                    message: 'Resolve conflict: keep local changes' 
+                                });
+                                resolve(true);
+                            } catch (error) {
+                                console.error('Error resolving conflict:', error);
+                                Alert.alert('Error', 'Failed to save changes. Please try again.');
+                                resolve(false);
+                            }
+                        }
+                    },
+                    {
+                        text: 'Use GitHub Version',
+                        onPress: async () => {
+                            const content = Buffer.from(fileInfo.content, 'base64').toString('utf8');
+                            await FileSystem.writeAsStringAsync(path, content);
+                            await updateFileMetadata(path, {
+                                sha: fileInfo.sha,
+                                url: fileInfo.url,
+                                htmlUrl: fileInfo.html_url
+                            });
+                            resolve(false);
+                        }
+                    }
+                ],
+                { cancelable: false }
+            );
+        });
+    }
+
+    // Clear any existing timeout for this path
     if (pendingChanges[path]) {
         clearTimeout(pendingChanges[path].timeout);
     }
 
-    // Store both the timeout and the content
+    // Schedule the new commit
     pendingChanges[path] = {
         timeout: setTimeout(() => commitPendingChange(path), delay),
         content
@@ -343,29 +496,67 @@ export async function syncFromGitHub(): Promise<void> {
         const baseDir = await ensureRepoExists();
         console.log('[GitHub] Base directory:', baseDir);
 
-        // Get all files from GitHub
-        const response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/contents`, {
-            headers: {
-                Authorization: `token ${token}`,
-                Accept: 'application/vnd.github.v3+json',
-            }
-        });
+        // Recursively get all files from GitHub
+        async function getGitHubContents(path = ''): Promise<{ name: string, path: string, type: string, url: string, html_url: string }[]> {
+            const response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/contents${path}`, {
+                headers: {
+                    Authorization: `token ${token}`,
+                    Accept: 'application/vnd.github.v3+json',
+                }
+            });
 
-        if (!response.ok) {
-            throw new Error(`GitHub API error: ${response.status}`);
+            if (!response.ok) {
+                throw new Error(`GitHub API error: ${response.status}`);
+            }
+
+            const items = await response.json();
+            let allItems = [];
+            
+            for (const item of items) {
+                if (item.type === 'dir') {
+                    const subItems = await getGitHubContents('/' + item.path);
+                    allItems.push(...subItems);
+                } else {
+                    allItems.push(item);
+                }
+            }
+            
+            return allItems;
         }
 
-        const files = await response.json();
-        const githubFiles = new Set(files.filter(f => f.type === 'file').map(f => f.name));
-        console.log('[GitHub] Found files:', Array.from(githubFiles));
+        // Get all GitHub files recursively
+        console.log('[GitHub] Fetching all files recursively...');
+        const files = await getGitHubContents();
+        const githubFiles = files.filter(f => f.type === 'file' && f.name.toLowerCase().endsWith('.md'));
+        console.log('[GitHub] Found files:', githubFiles.map(f => f.path));
 
-        // Get local files
-        const localFiles = await FileSystem.readDirectoryAsync(baseDir);
+        // Get all local files recursively
+        async function getLocalFiles(dir: string): Promise<string[]> {
+            const items = await FileSystem.readDirectoryAsync(dir);
+            let files = [];
+            
+            for (const item of items) {
+                const fullPath = `${dir}/${item}`;
+                const info = await FileSystem.getInfoAsync(fullPath);
+                
+                if (info.isDirectory) {
+                    const subFiles = await getLocalFiles(fullPath);
+                    files.push(...subFiles);
+                } else if (item.toLowerCase().endsWith('.md')) {
+                    files.push(fullPath.substring(baseDir.length + 1));
+                }
+            }
+            
+            return files;
+        }
+
+        const localFiles = await getLocalFiles(baseDir);
         console.log('[GitHub] Local files:', localFiles);
         
         // Delete local files that don't exist on GitHub
+        const githubPaths = new Set(githubFiles.map(f => f.path));
         for (const localFile of localFiles) {
-            if (localFile.toLowerCase().endsWith('.md') && !githubFiles.has(localFile)) {
+            if (!githubPaths.has(localFile)) {
                 console.log('[GitHub] Deleting removed file:', localFile);
                 const localPath = `${baseDir}/${localFile}`;
                 await FileSystem.deleteAsync(localPath);
@@ -374,20 +565,15 @@ export async function syncFromGitHub(): Promise<void> {
         }
         
         // Process each GitHub file
-        for (const file of files) {
-            if (file.type !== 'file') continue;
-
-            const localPath = `${baseDir}/${file.name}`;
+        for (const file of githubFiles) {
+            const localPath = `${baseDir}/${file.path}`;
             try {
-                // Store file metadata for later use
-                await updateFileMetadata(localPath, {
-                    sha: file.sha,
-                    url: file.url,
-                    htmlUrl: file.html_url
-                });
-
-                // Fetch the file content using the file's URL
-                console.log('[GitHub] Fetching content for:', file.name);
+                // Ensure directory exists
+                const dir = localPath.substring(0, localPath.lastIndexOf('/'));
+                await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+                
+                // Fetch the file content
+                console.log('[GitHub] Fetching content for:', file.path);
                 const contentResponse = await fetch(file.url, {
                     headers: {
                         Authorization: `token ${token}`,
@@ -402,9 +588,17 @@ export async function syncFromGitHub(): Promise<void> {
                 const contentData = await contentResponse.json();
                 const content = Buffer.from(contentData.content, 'base64').toString('utf8');
                 await FileSystem.writeAsStringAsync(localPath, content);
-                console.log('[GitHub] Saved file:', file.name);
+                
+                // Update metadata
+                await updateFileMetadata(localPath, {
+                    sha: contentData.sha,
+                    url: file.url,
+                    htmlUrl: file.html_url
+                });
+                
+                console.log('[GitHub] Saved file:', file.path);
             } catch (error) {
-                console.error(`Error syncing file ${file.name}:`, error);
+                console.error(`Error syncing file ${file.path}:`, error);
             }
         }
         console.log('[GitHub] Sync complete');
