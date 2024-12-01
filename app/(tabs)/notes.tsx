@@ -357,29 +357,27 @@ export default function NotesScreen() {
         setSaveTimeout(timeout);
     }, [saveTimeout, debouncedSave, filePath, metadata.tags, metadata.sha, metadata.htmlUrl]);
 
-    const handleAddTag = useCallback((newTag: string) => {
-        const updatedTags = [...metadata.tags, newTag];
+    const handleAddTag = useCallback(async (newTag: string) => {
+        const updatedMarkdown = addTagToMarkdown(markdownText, newTag);
+        handleTextChange(updatedMarkdown);
+        // Update metadata with tags from the updated markdown
+        const parsed = parseMarkdown(updatedMarkdown);
         setMetadata(prev => ({
             ...prev,
-            tags: updatedTags
+            tags: parsed.frontmatter.tags || []
         }));
+    }, [markdownText, handleTextChange]);
 
-        // Save the updated tags
-        const fullContent = `---\ntags: [${updatedTags.join(', ')}]\n---\n${markdownText}`;
-        debouncedSave(fullContent);
-    }, [markdownText, metadata.tags, debouncedSave]);
-
-    const handleRemoveTag = useCallback((tagToRemove: string) => {
-        const updatedTags = metadata.tags.filter(tag => tag !== tagToRemove);
+    const handleRemoveTag = useCallback(async (tagToRemove: string) => {
+        const updatedMarkdown = removeTagFromMarkdown(markdownText, tagToRemove);
+        handleTextChange(updatedMarkdown);
+        // Update metadata with tags from the updated markdown
+        const parsed = parseMarkdown(updatedMarkdown);
         setMetadata(prev => ({
             ...prev,
-            tags: updatedTags
+            tags: parsed.frontmatter.tags || []
         }));
-
-        // Save the updated tags
-        const fullContent = `---\ntags: [${updatedTags.join(', ')}]\n---\n${markdownText}`;
-        debouncedSave(fullContent);
-    }, [markdownText, metadata.tags, debouncedSave]);
+    }, [markdownText, handleTextChange]);
 
     const handleStartEditingFilename = () => {
         // Remove the .md extension for editing
