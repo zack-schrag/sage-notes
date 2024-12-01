@@ -1,4 +1,4 @@
-import { Pressable, Text, TextInput, View, SafeAreaView, StyleSheet, Platform, Linking, AppState, Alert } from 'react-native';
+import { Pressable, Text, TextInput, View, SafeAreaView, StyleSheet, Platform, Linking, AppState, Alert, Animated, Easing, ActionSheetIOS } from 'react-native';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ScrollView, StatusBar } from 'react-native';
 import Markdown from 'react-native-markdown-display';
@@ -14,7 +14,6 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ensureRepoExists, saveFile, getDirectoryStructure } from '@/utils/fileSystem';
 import { getToken, formatDate } from '@/utils/githubApi';
 import { parseMarkdown, addTagToMarkdown, removeTagFromMarkdown } from '@/utils/markdownParser';
-import { AddTagModal } from '@/components/AddTagModal';
 import { scheduleCommit, isActivelyCommitting, commitAllPendingChanges, commitFile, getRelativePath, deleteFile, getFileInfo } from '@/utils/githubSync';
 import { SyncIndicator } from '@/components/SyncIndicator';
 import { getRepoUrl } from '@/utils/tokenStorage';
@@ -49,7 +48,8 @@ export default function NotesScreen() {
     const [isSaving, setIsSaving] = useState(false);
     const [isCommitting, setIsCommitting] = useState(false);
     const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
-    const [isAddTagModalVisible, setIsAddTagModalVisible] = useState(false);
+    const [isAddingTag, setIsAddingTag] = useState(false);
+    const [newTagText, setNewTagText] = useState('');
     const [metadata, setMetadata] = useState<FileMetadata>({
         filename: filePath ? filePath.split('/').pop() || "New Note" : "New Note",
         created: "Just now",
@@ -62,6 +62,8 @@ export default function NotesScreen() {
     const [isRenamingSaving, setIsRenamingSaving] = useState(false);
     const [renameTimeout, setRenameTimeout] = useState<NodeJS.Timeout | null>(null);
     const [selectionStart, setSelectionStart] = useState(0);
+    const [isEditingTags, setIsEditingTags] = useState(false);
+    const tagAnimationsRef = useRef<Animated.Value[]>([]);
     const { width } = useWindowDimensions();
 
     const parseFilePath = (path: string) => {
@@ -208,6 +210,45 @@ export default function NotesScreen() {
             commitAllPendingChanges().catch(console.error);
         };
     }, []);
+
+    useEffect(() => {
+        tagAnimationsRef.current = metadata.tags.map(() => new Animated.Value(0));
+    }, [metadata.tags]);
+
+    useEffect(() => {
+        if (isEditingTags && tagAnimationsRef.current.length > 0) {
+            // Start jiggle animations
+            tagAnimationsRef.current.forEach(anim => {
+                Animated.loop(
+                    Animated.sequence([
+                        Animated.timing(anim, {
+                            toValue: 1,
+                            duration: 100,
+                            easing: Easing.linear,
+                            useNativeDriver: true
+                        }),
+                        Animated.timing(anim, {
+                            toValue: -1,
+                            duration: 100,
+                            easing: Easing.linear,
+                            useNativeDriver: true
+                        }),
+                        Animated.timing(anim, {
+                            toValue: 0,
+                            duration: 100,
+                            easing: Easing.linear,
+                            useNativeDriver: true
+                        })
+                    ])
+                ).start();
+            });
+
+            return () => {
+                // Stop animations when cleaning up
+                tagAnimationsRef.current.forEach(anim => anim.setValue(0));
+            };
+        }
+    }, [isEditingTags]);
 
     const debouncedSave = useCallback(async (text: string) => {
         if (!filePath) return;
@@ -450,6 +491,48 @@ export default function NotesScreen() {
         }
     };
 
+    const handleLongPressTag = (tag: string) => {
+        if (Platform.OS === 'ios') {
+            ActionSheetIOS.showActionSheetWithOptions(
+                {
+                    options: ['Cancel', 'Delete Tag'],
+                    destructiveButtonIndex: 1,
+                    cancelButtonIndex: 0,
+                    title: `#${tag}`,
+                },
+                (buttonIndex) => {
+                    if (buttonIndex === 1) {
+                        handleRemoveTag(tag);
+                    }
+                }
+            );
+        } else {
+            // For Android, show an Alert with options
+            Alert.alert(
+                `#${tag}`,
+                'Choose an action',
+                [
+                    {
+                        text: 'Cancel',
+                        style: 'cancel'
+                    },
+                    {
+                        text: 'Delete Tag',
+                        onPress: () => handleRemoveTag(tag),
+                        style: 'destructive'
+                    }
+                ],
+                { cancelable: true }
+            );
+        }
+    };
+
+    const handleTagPress = (tag: string) => {
+        if (isEditingTags) {
+            handleRemoveTag(tag);
+        }
+    };
+
     const MetadataHeader = () => (
         <View style={styles.metadataContainer}>
             <SafeAreaView style={styles.metadataContent}>
@@ -510,20 +593,49 @@ export default function NotesScreen() {
                         {metadata.tags.map((tag, index) => (
                             <Pressable
                                 key={index}
+                                onLongPress={() => handleLongPressTag(tag)}
                                 style={styles.tag}
-                                onLongPress={() => handleRemoveTag(tag)}
                             >
-                                <Text style={styles.tagText}>#{tag}</Text>
+                                <View style={styles.tagInner}>
+                                    <Text style={styles.tagText}>#{tag}</Text>
+                                </View>
                             </Pressable>
                         ))}
+                        {isAddingTag ? (
+                            <View style={styles.tag}>
+                                <TextInput
+                                    style={styles.tagInput}
+                                    value={newTagText}
+                                    onChangeText={setNewTagText}
+                                    placeholder="tag"
+                                    placeholderTextColor="#666"
+                                    autoFocus={true}
+                                    autoCapitalize="none"
+                                    onSubmitEditing={() => {
+                                        if (newTagText.trim()) {
+                                            handleAddTag(newTagText.trim());
+                                            setNewTagText('');
+                                        }
+                                        setIsAddingTag(false);
+                                    }}
+                                    onBlur={() => {
+                                        setIsAddingTag(false);
+                                        setNewTagText('');
+                                    }}
+                                />
+                            </View>
+                        ) : (
+                            <Pressable 
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    setIsAddingTag(true);
+                                }} 
+                                style={styles.addTagButton}
+                            >
+                                <IconSymbol name="plus.circle.fill" size={22} color="#87A987" />
+                            </Pressable>
+                        )}
                     </View>
-                    <Pressable 
-                        onPress={() => setIsAddTagModalVisible(true)} 
-                        style={styles.addTagButton}
-                    >
-                        <IconSymbol name="plus.circle.fill" size={18} color="#87A987" />
-                        <Text style={[styles.addTagText, { color: '#87A987' }]}>Add tag</Text>
-                    </Pressable>
                 </View>
             </SafeAreaView>
         </View>
@@ -542,50 +654,54 @@ export default function NotesScreen() {
     }, [saveTimeout, renameTimeout]);
 
     return (
-        <>
-            <ParallaxScrollView
-                headerBackgroundColor={{ light: '#1a1a1a', dark: '#1a1a1a' }}
-                headerHeight={220}
-                headerImage={<MetadataHeader />}>
-                <View style={{ flex: 1 }}>
-                    <SafeAreaView style={[styles.container, { backgroundColor: '#1a1a1a' }]}>
-                        <View style={[styles.editorContainer, { backgroundColor: '#1a1a1a' }]}>
-                            {!isPreviewMode ? (
-                                <TextInput
-                                    multiline
-                                    value={markdownText}
-                                    onChangeText={handleTextChange}
-                                    style={[styles.textInput, { backgroundColor: '#1a1a1a' }]}
-                                    placeholder="Start typing your markdown..."
-                                    placeholderTextColor="#666"
-                                />
-                            ) : (
-                                <ScrollView style={[styles.previewContainer, { backgroundColor: '#1a1a1a' }]}>
-                                    <Markdown style={markdownStyles}>
-                                        {parseMarkdown(markdownText).content}
-                                    </Markdown>
-                                </ScrollView>
-                            )}
-                        </View>
-                    </SafeAreaView>
-                </View>
-            </ParallaxScrollView>
-            <Pressable 
-                style={styles.toggleButton} 
-                onPress={() => setIsPreviewMode(!isPreviewMode)}
-            >
-                <IconSymbol
-                    size={24}
-                    color="#87A987"
-                    name={isPreviewMode ? "pencil" : "eye"}
-                />
-            </Pressable>
-            <AddTagModal
-                visible={isAddTagModalVisible}
-                onClose={() => setIsAddTagModalVisible(false)}
-                onAddTag={handleAddTag}
-            />
-        </>
+        <Pressable 
+            style={styles.container} 
+            onPress={() => {
+                if (isEditingTags) {
+                    setIsEditingTags(false);
+                }
+            }}
+        >
+            <SafeAreaView style={styles.container}>
+                <ParallaxScrollView
+                    headerBackgroundColor={{ light: '#1a1a1a', dark: '#1a1a1a' }}
+                    headerHeight={220}
+                    headerImage={<MetadataHeader />}>
+                    <View style={{ flex: 1 }}>
+                        <SafeAreaView style={[styles.container, { backgroundColor: '#1a1a1a' }]}>
+                            <View style={[styles.editorContainer, { backgroundColor: '#1a1a1a' }]}>
+                                {!isPreviewMode ? (
+                                    <TextInput
+                                        multiline
+                                        value={markdownText}
+                                        onChangeText={handleTextChange}
+                                        style={[styles.textInput, { backgroundColor: '#1a1a1a' }]}
+                                        placeholder="Start typing your markdown..."
+                                        placeholderTextColor="#666"
+                                    />
+                                ) : (
+                                    <ScrollView style={[styles.previewContainer, { backgroundColor: '#1a1a1a' }]}>
+                                        <Markdown style={markdownStyles}>
+                                            {parseMarkdown(markdownText).content}
+                                        </Markdown>
+                                    </ScrollView>
+                                )}
+                            </View>
+                        </SafeAreaView>
+                    </View>
+                </ParallaxScrollView>
+                <Pressable 
+                    style={styles.toggleButton} 
+                    onPress={() => setIsPreviewMode(!isPreviewMode)}
+                >
+                    <IconSymbol
+                        size={24}
+                        color="#87A987"
+                        name={isPreviewMode ? "pencil" : "eye"}
+                    />
+                </Pressable>
+            </SafeAreaView>
+        </Pressable>
     );
 }
 
@@ -784,33 +900,40 @@ const styles = StyleSheet.create({
         marginBottom: 6,
     },
     tag: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(135, 169, 135, 0.1)',
-        paddingVertical: 4,
-        paddingHorizontal: 8,
-        borderRadius: 12,
         marginRight: 8,
         marginBottom: 8,
     },
+    tagInner: {
+        backgroundColor: 'rgba(135, 169, 135, 0.4)', // Sage green with 30% opacity
+        borderRadius: 12,
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     tagText: {
-        color: '#87A987',
+        color: '#87A987', // Back to sage green for text
         fontSize: 14,
     },
     addTagButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        paddingVertical: 5,
-        paddingLeft: 2
-    },
-    addTagText: {
-        color: '#87A987',
-        fontSize: 14,
+        justifyContent: 'center',
+        paddingVertical: 0,
+        paddingHorizontal: 0,
+        backgroundColor: '#3a3a3a0',
+        borderRadius: 16,
+        marginBottom: 8,
     },
     savingIndicator: {
         color: '#666',
         fontSize: 14,
+    },
+    tagInput: {
+        color: '#87A987',
+        fontSize: 14,
+        minWidth: 60,
+        padding: 0,
     },
 });
 
