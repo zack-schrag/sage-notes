@@ -7,10 +7,10 @@ import { ThemedText } from '@/components/ThemedText';
 import { getDirectoryStructure, createNewNote, deleteItems, REPOS_DIR, listMarkdownFiles } from '@/utils/fileSystem';
 import { getToken } from '@/utils/tokenStorage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { syncFromGitHub } from '@/utils/githubSync';
 import { isRepoConfigured } from '@/utils/repoSetup';
 import * as FileSystem from 'expo-file-system';
 import { formatTimeAgo } from '@/utils/dateFormat';
+import { startBackgroundSync, stopBackgroundSync, forceSync, performFullSync } from '../../utils/syncManager';
 
 interface RecentFile {
   title: string;
@@ -113,6 +113,24 @@ export default function FilesScreen() {
     isSelectionModeRef.current = isSelectionMode;
   }, [isSelectionMode]);
 
+  useEffect(() => {
+    // Start background sync when component mounts
+    if (isRepoSetup) {
+      startBackgroundSync();
+    }
+
+    // Cleanup on unmount
+    return () => {
+      stopBackgroundSync();
+    };
+  }, [isRepoSetup]); // Restart sync when repo setup changes
+
+  useEffect(() => {
+    if (isRepoSetup && !lastSyncTime) {
+      setLastSyncTime(new Date());
+    }
+  }, [isRepoSetup]);
+
   const handleFilePress = (path: string) => {
     router.push({
       pathname: '/(tabs)/notes',
@@ -157,7 +175,7 @@ export default function FilesScreen() {
               setSelectedPaths([]);
               setIsSelectionMode(false);
               isSelectionModeRef.current = false;
-              await handleSync();
+              // await handleSync();
             } catch (error) {
               console.error('Error deleting items:', error);
               Alert.alert('Error', 'Failed to delete some items');
@@ -177,17 +195,8 @@ export default function FilesScreen() {
     
     try {
       setIsSyncing(true);
-      
-      // First sync with GitHub - this downloads all files
-      console.log('[Sync] Starting GitHub sync');
-      await syncFromGitHub();
-      console.log('[Sync] GitHub sync complete');
-      
-      // Then reload the file tree and recent files
-      console.log('[Sync] Loading files');
+      await forceSync();
       await loadFiles();
-      console.log('[Sync] Files loaded');
-      
       setLastSyncTime(new Date());
     } catch (error) {
       console.error('Error syncing with GitHub:', error);
@@ -197,30 +206,25 @@ export default function FilesScreen() {
     }
   };
 
-  // Background sync every 5 minutes
-  useEffect(() => {
-    let syncInterval: NodeJS.Timeout;
+  const handleFullSync = async () => {
+    console.log('Starting full sync...');
+    if (isSyncing || isSelectionModeRef.current) {
+      console.log('Already syncing or in selection mode');
+      return;
+    }
     
-    const startBackgroundSync = () => {
-      // Initial sync when component mounts
-      handleSync();
-      
-      // Then sync every 5 minutes
-      syncInterval = setInterval(() => {
-        console.log('Running background sync...');
-        handleSync();
-      }, 5 * 60 * 1000); // 5 minutes in milliseconds
-    };
-
-    startBackgroundSync();
-
-    // Cleanup interval on unmount
-    return () => {
-      if (syncInterval) {
-        clearInterval(syncInterval);
-      }
-    };
-  }, []); // Empty dependency array means this runs once on mount
+    try {
+      setIsSyncing(true);
+      await performFullSync();
+      await loadFiles();
+      setLastSyncTime(new Date());
+    } catch (error) {
+      console.error('Error during full sync:', error);
+      Alert.alert('Full Sync Error', 'Failed to sync with GitHub. Please try again.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -319,10 +323,21 @@ export default function FilesScreen() {
               </View>
             )}
 
-            {lastSyncTime && !isSelectionMode && (
-              <ThemedText style={styles.lastSyncText}>
-                Last synced {timeAgoText}
-              </ThemedText>
+            {isRepoSetup && !isSelectionMode && (
+              <View style={styles.syncContainer}>
+                <ThemedText style={styles.lastSyncText}>
+                  {lastSyncTime ? `Last synced ${timeAgoText}` : 'Not synced yet'}
+                </ThemedText>
+                <View style={styles.syncButtons}>
+                  <Pressable
+                    onPress={handleFullSync}
+                    disabled={isSyncing}
+                    style={styles.syncButton}
+                  >
+                    <IconSymbol name="refresh-cw" size={18} color="#87A987" />
+                  </Pressable>
+                </View>
+              </View>
             )}
           </>
         )}
@@ -399,13 +414,26 @@ const styles = StyleSheet.create({
   lastSyncText: {
     fontSize: 12,
     color: '#666',
+    textAlign: 'center',
+  },
+  syncContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 4,
-    textAlign: 'center',
     marginBottom: Platform.select({
       ios: 0,
       android: 8,
     }),
+    gap: 8,
+  },
+  syncButtons: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  syncButton: {
+    padding: 4,
   },
   recentSection: {
     borderTopWidth: 1,

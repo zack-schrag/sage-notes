@@ -8,6 +8,7 @@ import { cloneRepository, removeRepository } from '@/utils/fileSystem';
 import { saveToken, getToken, removeToken, saveRepoUrl, getRepoUrl, removeRepoUrl } from '@/utils/tokenStorage';
 import { setRepoInfo } from '@/utils/githubSync';
 import { parseRepoUrl } from '@/utils/githubUtils';
+import { initializeTracking } from '@/utils/fileTracker';
 
 export default function SettingsScreen() {
   const [isCloning, setIsCloning] = React.useState(false);

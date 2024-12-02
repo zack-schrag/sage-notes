@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system';
 import { setRepoInfo, getFileMetadata, deleteFile, deleteFileMetadata, commitFile } from './githubSync';
 import { parseRepoUrl } from './githubUtils';
 import { getRepoUrl } from './tokenStorage';
+import { initializeTracking } from './fileTracker';
 
 // Base directory for all our git repositories
 export const REPOS_DIR = `${FileSystem.documentDirectory}repos/`;
@@ -9,8 +10,9 @@ export const REPOS_DIR = `${FileSystem.documentDirectory}repos/`;
 interface GitHubContent {
     name: string;
     path: string;
-    type: string;
+    type: 'dir' | 'file';
     download_url: string | null;
+    sha: string;
 }
 
 interface FileTreeItem {
@@ -28,7 +30,7 @@ interface GitHubFile {
   download_url: string | null;
 }
 
-async function getRepoInfo(): Promise<{ owner: string; name: string; repoDir: string }> {
+export async function getRepoInfo(): Promise<{ owner: string; name: string; repoDir: string }> {
   const repoUrl = await getRepoUrl();
   if (!repoUrl) {
     throw new Error('No repository URL found');
@@ -43,35 +45,20 @@ async function getRepoInfo(): Promise<{ owner: string; name: string; repoDir: st
   };
 }
 
-async function fetchDirectoryContents(path: string, token: string, repoOwner: string, repoName: string): Promise<GitHubContent[]> {
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${path}`,
-      {
+async function fetchDirectoryContents(path: string, token: string, owner: string, repo: string): Promise<GitHubContent[]> {
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    const response = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      }
-    );
-
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json'
+        }
+    });
+    
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status}`);
+        throw new Error('Failed to fetch directory contents');
     }
-
+    
     return await response.json();
-  } catch (error) {
-    console.error('Error fetching directory contents:', error);
-    throw error;
-  }
-}
-
-export async function ensureReposDirExists() {
-    const dirInfo = await FileSystem.getInfoAsync(REPOS_DIR);
-    if (!dirInfo.exists) {
-        console.log('Creating repos directory...');
-        await FileSystem.makeDirectoryAsync(REPOS_DIR, { intermediates: true });
-    }
 }
 
 async function downloadFile(downloadUrl: string, localPath: string, token: string) {
@@ -85,10 +72,11 @@ async function downloadFile(downloadUrl: string, localPath: string, token: strin
             }
         }
     );
-    console.log('Download complete:', response);
+    console.log('Download complete for:', localPath);
 }
 
 export async function cloneRepository(repoUrl: string, token: string) {
+    await removeRepository();
     try {
         const repoInfo = parseRepoUrl(repoUrl);
         if (!repoInfo) {
@@ -112,6 +100,8 @@ export async function cloneRepository(repoUrl: string, token: string) {
         // Create the target directory
         await FileSystem.makeDirectoryAsync(localRepoDir, { intermediates: true });
 
+        const trackedFiles: { path: string; sha: string }[] = [];
+
         // Recursively fetch and download all files
         async function processDirectory(path: string = '', currentDir: string = localRepoDir) {
             const contents = await fetchDirectoryContents(path, token, owner, name);
@@ -124,12 +114,24 @@ export async function cloneRepository(repoUrl: string, token: string) {
                     await processDirectory(item.path, localItemPath);
                 } else if (item.type === 'file' && item.download_url) {
                     await downloadFile(item.download_url, localItemPath, token);
+                    
+                    // Track markdown files for syncing
+                    if (item.name.endsWith('.md')) {
+                        trackedFiles.push({
+                            path: item.path,
+                            sha: item.sha
+                        });
+                    }
                 }
             }
         }
 
         await processDirectory();
         console.log('Repository contents downloaded successfully');
+
+        // Initialize file tracking with the collected files
+        initializeTracking(trackedFiles, true);
+
         return true;
     } catch (error) {
         console.error('Error in cloneRepository:', error);
@@ -137,12 +139,20 @@ export async function cloneRepository(repoUrl: string, token: string) {
     }
 }
 
+export async function ensureReposDirExists() {
+    const dirInfo = await FileSystem.getInfoAsync(REPOS_DIR);
+    if (!dirInfo.exists) {
+        console.log('Creating repos directory...');
+        await FileSystem.makeDirectoryAsync(REPOS_DIR, { intermediates: true });
+    }
+}
+
 export async function listMarkdownFiles() {
     try {
         const { repoDir } = await getRepoInfo();
-        console.log('Checking repository directory:', repoDir);
+        // console.log('Checking repository directory:', repoDir);
         const dirInfo = await FileSystem.getInfoAsync(repoDir);
-        console.log('Directory info:', dirInfo);
+        // console.log('Directory info:', dirInfo);
         
         if (!dirInfo.exists) {
             console.log('Repository directory does not exist');
@@ -151,15 +161,15 @@ export async function listMarkdownFiles() {
 
         // List all files recursively
         const getFilesInDir = async (dir: string): Promise<string[]> => {
-            console.log('Scanning directory:', dir);
+            // console.log('Scanning directory:', dir);
             const files = await FileSystem.readDirectoryAsync(dir);
-            console.log('Files in directory:', files);
+            // console.log('Files in directory:', files);
             let results: string[] = [];
             
             for (const file of files) {
                 const fullPath = `${dir}/${file}`;
                 const info = await FileSystem.getInfoAsync(fullPath);
-                console.log('File info for', file, ':', info);
+                // console.log('File info for', file, ':', info);
                 
                 if (info.isDirectory) {
                     results = results.concat(await getFilesInDir(fullPath));
@@ -173,7 +183,7 @@ export async function listMarkdownFiles() {
         };
 
         const files = await getFilesInDir(repoDir);
-        console.log('Found markdown files:', files);
+        // console.log('Found markdown files:', files);
         return files;
     } catch (error) {
         console.error('Error listing markdown files:', error);
@@ -356,11 +366,11 @@ export async function deleteItems(paths: string[]): Promise<boolean> {
           const metadata = await getFileMetadata(path);
           
           // Delete from GitHub first if we have the SHA
-          if (metadata?.sha) {
-            console.log('Deleting from GitHub first:', path);
-            await deleteFile(path, metadata.sha);
-            await deleteFileMetadata(path);
-          }
+          // if (metadata?.sha) {
+          //   console.log('Deleting from GitHub first:', path);
+          //   await deleteFile(path, metadata.sha);
+          //   await deleteFileMetadata(path);
+          // }
           
           // Then delete locally
           await deleteLocalFile(path);

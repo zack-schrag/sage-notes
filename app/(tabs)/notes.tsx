@@ -77,99 +77,19 @@ export default function NotesScreen() {
             setIsSaving(true);
             
             // Phase 1: Immediate local file load
+            const fileInfo = await FileSystem.getInfoAsync(filePath);
             const content = await FileSystem.readAsStringAsync(filePath);
             const { frontmatter, content: markdownContent } = parseMarkdown(content);
             setMarkdownText(markdownContent);
 
-            // Initialize metadata with frontmatter dates if available
-            const hasFrontmatterCreated = !!frontmatter.created;
-            const hasFrontmatterUpdated = !!frontmatter.lastUpdated;
-
             setMetadata(prev => ({
                 ...prev,
                 filename: filePath.split('/').pop() || "New Note",
-                created: hasFrontmatterCreated ? formatDate(frontmatter.created) : "Just now",
-                lastUpdated: hasFrontmatterUpdated ? formatDate(frontmatter.lastUpdated) : "Just now",
+                created: "hardcoded",
+                lastUpdated: "hardcoded",
                 tags: frontmatter.tags || []
             }));
             setIsSaving(false);
-
-            // Phase 2: Background GitHub metadata load
-            const loadGitHubMetadata = async () => {
-                const repoUrl = await getRepoUrl();
-                if (!repoUrl) return;
-
-                const repoInfo = parseRepoUrl(repoUrl);
-                if (!repoInfo) return;
-
-                const relativePath = getRelativePath(filePath);
-                if (!relativePath) return;
-
-                try {
-                    // Get file info for SHA
-                    const fileInfo = await getFileInfo(relativePath);
-                    if (!fileInfo) return;
-
-                    const sha = fileInfo.sha;
-                    const htmlUrl = `https://github.com/${repoInfo.owner}/${repoInfo.name}/blob/main/${relativePath}`;
-
-                    // Get commit history for dates
-                    const token = await getToken();
-                    if (!token) return;
-
-                    const headers = {
-                        Authorization: `token ${token}`,
-                        Accept: 'application/vnd.github.v3+json',
-                    };
-
-                    // Only fetch commit dates if we don't have them in frontmatter
-                    let firstCommitDate = undefined;
-                    let lastCommitDate = undefined;
-
-                    if (!hasFrontmatterCreated || !hasFrontmatterUpdated) {
-                        // Get the latest commit (most recent)
-                        const latestCommitUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${relativePath}&per_page=1`;
-                        const latestCommitResponse = await fetch(latestCommitUrl, { headers });
-                        const latestCommits = await latestCommitResponse.json();
-                        lastCommitDate = latestCommits[0]?.commit?.committer?.date;
-
-                        // Get total number of commits for this file
-                        const commitCountUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${relativePath}&per_page=1`;
-                        const countResponse = await fetch(commitCountUrl, { headers });
-                        const linkHeader = countResponse.headers.get('link');
-                        let totalPages = 1;
-                        
-                        if (linkHeader) {
-                            const lastPageMatch = linkHeader.match(/&page=(\d+)>; rel="last"/);
-                            if (lastPageMatch) {
-                                totalPages = parseInt(lastPageMatch[1]);
-                            }
-                        }
-
-                        // Get the first commit (oldest) using the correct page number
-                        const firstCommitUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/commits?path=${relativePath}&per_page=1&page=${totalPages}`;
-                        const firstCommitResponse = await fetch(firstCommitUrl, { headers });
-                        const firstCommits = await firstCommitResponse.json();
-                        firstCommitDate = firstCommits[0]?.commit?.committer?.date;
-                    }
-
-                    setMetadata(prev => ({
-                        ...prev,
-                        sha,
-                        htmlUrl,
-                        // Only update dates if they weren't in frontmatter
-                        created: hasFrontmatterCreated ? prev.created : (firstCommitDate ? formatDate(firstCommitDate) : prev.created),
-                        lastUpdated: hasFrontmatterUpdated ? prev.lastUpdated : (lastCommitDate ? formatDate(lastCommitDate) : prev.lastUpdated)
-                    }));
-                } catch (error) {
-                    console.error('Error loading GitHub metadata:', error);
-                }
-            };
-
-            // Start background load
-            loadGitHubMetadata().catch(error => {
-                console.error('Background GitHub metadata load failed:', error);
-            });
         } catch (error) {
             console.error('Error loading file:', error);
             setIsSaving(false);
@@ -179,84 +99,6 @@ export default function NotesScreen() {
     useEffect(() => {
         loadFile();
     }, [filePath]);
-
-    // Monitor actual commit status
-    useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (filePath) {
-            interval = setInterval(() => {
-                setIsCommitting(isActivelyCommitting(filePath));
-            }, 100);
-        }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [filePath]);
-
-    useEffect(() => {
-        const subscription = AppState.addEventListener('change', async (nextAppState) => {
-            if (nextAppState === 'background' || nextAppState === 'inactive') {
-                console.log('App going to background, committing pending changes...');
-                await commitAllPendingChanges();
-            }
-        });
-
-        return () => {
-            subscription.remove();
-        };
-    }, []);
-
-    useEffect(() => {
-        tagAnimationsRef.current = metadata.tags.map(() => new Animated.Value(0));
-    }, [metadata.tags]);
-
-    useEffect(() => {
-        if (isEditingTags && tagAnimationsRef.current.length > 0) {
-            // Start jiggle animations
-            tagAnimationsRef.current.forEach(anim => {
-                Animated.loop(
-                    Animated.sequence([
-                        Animated.timing(anim, {
-                            toValue: 1,
-                            duration: 100,
-                            easing: Easing.linear,
-                            useNativeDriver: true
-                        }),
-                        Animated.timing(anim, {
-                            toValue: -1,
-                            duration: 100,
-                            easing: Easing.linear,
-                            useNativeDriver: true
-                        }),
-                        Animated.timing(anim, {
-                            toValue: 0,
-                            duration: 100,
-                            easing: Easing.linear,
-                            useNativeDriver: true
-                        })
-                    ])
-                ).start();
-            });
-
-            return () => {
-                // Stop animations when cleaning up
-                tagAnimationsRef.current.forEach(anim => anim.setValue(0));
-            };
-        }
-    }, [isEditingTags]);
-
-    useFocusEffect(
-        useCallback(() => {
-            console.log('useFocusEffect called with filePath:', filePath);
-            console.log('Current route:', router);
-            if (filePath) {
-                loadFile();
-            }
-            return () => {
-                console.log('Screen losing focus');
-            };
-        }, [filePath])
-    );
 
     const debouncedSave = useCallback(async (text: string) => {
         if (!filePath) return;
@@ -290,15 +132,6 @@ export default function NotesScreen() {
             try {
                 // First save locally
                 await debouncedSave(text);
-
-                // Schedule commit if we have a file path
-                if (filePath) {
-                    const frontmatter = {
-                        tags: metadata.tags
-                    };
-                    const fullContent = `---\ntags: [${frontmatter.tags.join(', ')}]\n---\n${text}`;
-                    scheduleCommit(filePath, fullContent);
-                }
             } catch (error) {
                 console.error('Error in auto-save:', error);
             }
@@ -473,16 +306,6 @@ export default function NotesScreen() {
                 { cancelable: true }
             );
         }
-    };
-
-    const handleTagPress = (tag: string) => {
-        if (isEditingTags) {
-            handleRemoveTag(tag);
-        }
-    };
-
-    const handleToggleEditingTags = () => {
-        setIsEditingTags(!isEditingTags);
     };
 
     const onRefresh = useCallback(async () => {

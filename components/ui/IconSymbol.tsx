@@ -26,6 +26,8 @@ const MAPPING = {
   'pencil': 'edit',  // Added for edit mode toggle
   'plus.circle.fill': 'add-circle',  // Added for Add tag button
   'doc.text': 'description',  // Added for file icon in recent section
+  'refresh-ccw': 'sync',  // Quick sync icon
+  'refresh-cw': 'autorenew',  // Full sync icon
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],
