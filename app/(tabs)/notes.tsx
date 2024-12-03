@@ -100,6 +100,18 @@ export default function NotesScreen() {
         loadFile();
     }, [filePath]);
 
+    useFocusEffect(
+        useCallback(() => {
+            console.log('useFocusEffect called with filePath:', filePath);
+            if (filePath) {
+                loadFile();
+            }
+            return () => {
+                console.log('Screen losing focus');
+            };
+        }, [filePath])
+    );
+
     const debouncedSave = useCallback(async (text: string) => {
         if (!filePath) return;
 
