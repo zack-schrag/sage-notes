@@ -3,7 +3,7 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
-const sageGreen = '#87A987'; // A muted, natural sage green color
+export const sageGreen = '#87A987'; // A muted, natural sage green color
 const tintColorLight = sageGreen;
 const tintColorDark = '#fff';
 

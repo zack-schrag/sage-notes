@@ -16,6 +16,7 @@ import { scheduleCommit, isActivelyCommitting, commitAllPendingChanges, commitFi
 import { SyncIndicator } from '@/components/SyncIndicator';
 import { getRepoUrl } from '@/utils/tokenStorage';
 import { parseRepoUrl } from '@/utils/githubUtils';
+import { Colors, sageGreen } from '../../constants/Colors';
 
 const initialMarkdown = `# Welcome to Your Markdown Editor
 
@@ -345,24 +346,7 @@ export default function NotesScreen() {
                 <View style={styles.filenameContainer}>
                     <View style={styles.filenameSection}>
                         <View style={styles.filenameInputContainer}>
-                            {isEditingFilename ? (
-                                <>
-                                    <TextInput
-                                        value={editedFilename}
-                                        onChangeText={handleFilenameChange}
-                                        onBlur={handleSaveFilename}
-                                        onSubmitEditing={handleSaveFilename}
-                                        blurOnSubmit={true}
-                                        onSelectionChange={handleSelectionChange}
-                                        selection={{ start: selectionStart, end: selectionStart }}
-                                        autoCapitalize="none"
-                                        autoCorrect={false}
-                                        autoFocus
-                                        style={[styles.filename, styles.filenameInput]}
-                                    />
-                                    <Text style={[styles.filename, styles.extensionText]}>.md</Text>
-                                </>
-                            ) : (
+                            {!isEditingFilename && (
                                 <Pressable onPress={handleStartEditingFilename}>
                                     <Text style={styles.filename}>{metadata.filename}</Text>
                                 </Pressable>
@@ -407,35 +391,9 @@ export default function NotesScreen() {
                                 </View>
                             </Pressable>
                         ))}
-                        {isAddingTag ? (
-                            <View style={styles.tag}>
-                                <TextInput
-                                    style={styles.tagInput}
-                                    value={newTagText}
-                                    onChangeText={setNewTagText}
-                                    placeholder="tag"
-                                    placeholderTextColor="#666"
-                                    autoFocus={true}
-                                    autoCapitalize="none"
-                                    onSubmitEditing={() => {
-                                        if (newTagText.trim()) {
-                                            handleAddTag(newTagText.trim());
-                                            setNewTagText('');
-                                        }
-                                        setIsAddingTag(false);
-                                    }}
-                                    onBlur={() => {
-                                        setIsAddingTag(false);
-                                        setNewTagText('');
-                                    }}
-                                />
-                            </View>
-                        ) : (
+                        {!isAddingTag && (
                             <Pressable 
-                                onPress={(e) => {
-                                    e.stopPropagation();
-                                    setIsAddingTag(true);
-                                }} 
+                                onPress={() => setIsAddingTag(true)}
                                 style={styles.addTagButton}
                             >
                                 <IconSymbol name="plus.circle.fill" size={22} color="#87A987" />
@@ -447,77 +405,98 @@ export default function NotesScreen() {
         </View>
     );
 
-    // Cleanup timeout on unmount
-    useEffect(() => {
-        return () => {
-            if (saveTimeout) {
-                clearTimeout(saveTimeout);
-            }
-            if (renameTimeout) {
-                clearTimeout(renameTimeout);
-            }
-        };
-    }, [saveTimeout, renameTimeout]);
-
     return (
-        <Pressable 
-            style={styles.container} 
-            onPress={() => {
-                if (isEditingTags) {
-                    setIsEditingTags(false);
-                }
-            }}
-        >
-            <SafeAreaView style={styles.container}>
-                <ParallaxScrollView
-                    headerBackgroundColor={{ light: '#1a1a1a', dark: '#1a1a1a' }}
-                    headerHeight={Platform.select({
-                        ios: 150,
-                        android: 200,
-                    })}
-                    contentContainerStyle={{ marginTop: 0, paddingTop: 0 }}
-                    headerImage={<MetadataHeader />}
-                    onRefresh={onRefresh}
-                    refreshing={refreshing}
-                    >
-                    <View style={[styles.editorContainer, { marginTop: 0, paddingTop: 0 }]}>
-                        {!isPreviewMode ? (
-                            <TextInput
-                                multiline
-                                value={markdownText}
-                                onChangeText={handleTextChange}
-                                style={[styles.textInput, { backgroundColor: '#1a1a1a' }]}
-                                placeholder="Start typing your markdown..."
-                                placeholderTextColor="#666"
-                            />
-                        ) : (
-                            <ScrollView style={[styles.previewContainer, { backgroundColor: '#1a1a1a' }]}>
-                                <Markdown style={markdownStyles}>
-                                    {parseMarkdown(markdownText).content}
-                                </Markdown>
-                            </ScrollView>
-                        )}
-                    </View>
-                </ParallaxScrollView>
-                <Pressable 
-                    style={styles.toggleButton} 
-                    onPress={() => setIsPreviewMode(!isPreviewMode)}
-                >
-                    <IconSymbol
-                        size={24}
-                        color="#87A987"
-                        name={isPreviewMode ? "pencil" : "eye"}
+        <View style={styles.container}>
+            {isEditingFilename && (
+                <View style={styles.floatingInput}>
+                    <TextInput
+                        value={editedFilename}
+                        onChangeText={handleFilenameChange}
+                        onBlur={handleSaveFilename}
+                        onSubmitEditing={handleSaveFilename}
+                        blurOnSubmit={true}
+                        onSelectionChange={handleSelectionChange}
+                        selection={{ start: selectionStart, end: selectionStart }}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        autoFocus
+                        style={[styles.filename, styles.filenameInput]}
                     />
-                </Pressable>
-            </SafeAreaView>
-        </Pressable>
+                    <Text style={[styles.filename, styles.extensionText]}>.md</Text>
+                </View>
+            )}
+            {isAddingTag && (
+                <View style={styles.floatingInput}>
+                    <TextInput
+                        style={styles.tagInput}
+                        value={newTagText}
+                        onChangeText={setNewTagText}
+                        placeholder="tag"
+                        placeholderTextColor="#666"
+                        autoFocus={true}
+                        autoCapitalize="none"
+                        onSubmitEditing={() => {
+                            if (newTagText.trim()) {
+                                handleAddTag(newTagText.trim());
+                                setNewTagText('');
+                            }
+                            setIsAddingTag(false);
+                        }}
+                        onBlur={() => {
+                            setIsAddingTag(false);
+                            setNewTagText('');
+                        }}
+                    />
+                </View>
+            )}
+            <ParallaxScrollView
+                headerBackgroundColor={{ light: Colors.light.background, dark: Colors.dark.background }}
+                headerHeight={Platform.select({
+                    ios: 150,
+                    android: 200,
+                })}
+                contentContainerStyle={{ marginTop: 0, paddingTop: 0 }}
+                headerImage={<MetadataHeader />}
+                onRefresh={onRefresh}
+                refreshing={refreshing}
+            >
+                <View style={[styles.editorContainer, { marginTop: 0, paddingTop: 0 }]}>
+                    {!isPreviewMode ? (
+                        <TextInput
+                            multiline
+                            value={markdownText}
+                            onChangeText={handleTextChange}
+                            style={[styles.textInput, { backgroundColor: Colors.dark.background }]}
+                            placeholder="Start typing your markdown..."
+                            placeholderTextColor="#666"
+                        />
+                    ) : (
+                        <ScrollView style={[styles.previewContainer, { backgroundColor: Colors.dark.background }]}>
+                            <Markdown style={markdownStyles}>
+                                {parseMarkdown(markdownText).content}
+                            </Markdown>
+                        </ScrollView>
+                    )}
+                </View>
+            </ParallaxScrollView>
+            <Pressable 
+                style={styles.toggleButton} 
+                onPress={() => setIsPreviewMode(!isPreviewMode)}
+            >
+                <IconSymbol
+                    size={24}
+                    color="#87A987"
+                    name={isPreviewMode ? "pencil" : "eye"}
+                />
+            </Pressable>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#1a1a1a',
+        backgroundColor: Colors.dark.background,
     },
     metadataContainer: {
         backgroundColor: 'transparent',
@@ -548,7 +527,7 @@ const styles = StyleSheet.create({
     filename: {
         fontSize: 20,
         fontWeight: '600',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         paddingLeft: 30
     },
     filenameInputContainer: {
@@ -557,14 +536,16 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     filenameInput: {
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         fontSize: 20,
         fontWeight: '600',
         minWidth: 100,
-        padding: 0,
+        padding: Platform.select({
+            ios: 8,
+            android: 8
+        }),
         margin: 0,
-        borderBottomWidth: 1,
-        borderBottomColor: '#666',
+        flex: 1,
     },
     extensionText: {
         color: '#888',
@@ -631,7 +612,7 @@ const styles = StyleSheet.create({
     },
     editorContainer: {
         flex: 1,
-        backgroundColor: '#1a1a1a',
+        backgroundColor: Colors.dark.background,
         minHeight: '100%',
         paddingTop: Platform.select({
             ios: 0,
@@ -656,7 +637,7 @@ const styles = StyleSheet.create({
         borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
+        shadowColor: "#000",
         shadowOffset: {
             width: 0,
             height: 2,
@@ -667,7 +648,7 @@ const styles = StyleSheet.create({
     },
     textInput: {
         flex: 1,
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         fontSize: 16,
         lineHeight: Platform.select({
             ios: 24,
@@ -732,10 +713,39 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     tagInput: {
-        color: '#87A987',
-        fontSize: 14,
+        color: sageGreen,
+        fontSize: 16,
         minWidth: 60,
-        padding: 0,
+        padding: Platform.select({
+            ios: 8,
+            android: 8
+        }),
+        flex: 1,
+    },
+    floatingInput: {
+        position: 'absolute',
+        top: Platform.select({
+            ios: 100,
+            android: 120
+        }),
+        left: 16,
+        right: 16,
+        zIndex: 1000,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.dark.background,
+        borderRadius: 8,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: sageGreen,
+        shadowColor: "#000",
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
     },
 });
 
@@ -743,54 +753,54 @@ const markdownStyles = {
     body: {
         fontSize: 16,
         lineHeight: 24,
-        color: '#e0e0e0',
-        backgroundColor: '#1a1a1a',
+        color: Colors.dark.text,
+        backgroundColor: Colors.dark.background,
     },
     heading1: {
         fontSize: 24,
         marginTop: 16,
         marginBottom: 8,
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     heading2: {
         fontSize: 20,
         marginTop: 16,
         marginBottom: 8,
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     heading3: {
         fontSize: 18,
         marginTop: 16,
         marginBottom: 8,
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     heading4: {
         fontSize: 16,
         marginTop: 16,
         marginBottom: 8,
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     heading5: {
         fontSize: 14,
         marginTop: 16,
         marginBottom: 8,
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     heading6: {
         fontSize: 12,
         marginTop: 16,
         marginBottom: 8,
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     paragraph: {
         marginVertical: 8,
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     hr: { 
         backgroundColor: '#333',
@@ -799,15 +809,15 @@ const markdownStyles = {
     },
     strong: { 
         fontWeight: 'bold',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     em: { 
         fontStyle: 'italic',
-        color: '#e0e0e0',
+        color: Colors.dark.text,
     },
     link: { 
-        color: '#87A987',
-        textDecorationLine: 'underline',
+        color: sageGreen,
+        textDecorationLine: 'none',
     },
     blockquote: { 
         backgroundColor: '#222',
@@ -818,7 +828,7 @@ const markdownStyles = {
         marginVertical: 8,
     },
     code_inline: { 
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         backgroundColor: '#222',
         paddingHorizontal: 4,
         paddingVertical: 2,
@@ -826,7 +836,7 @@ const markdownStyles = {
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     code_block: { 
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         backgroundColor: '#222',
         padding: 12,
         borderRadius: 4,
@@ -834,7 +844,7 @@ const markdownStyles = {
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     fence: { 
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         backgroundColor: '#222',
         padding: 12,
         borderRadius: 4,
@@ -842,22 +852,22 @@ const markdownStyles = {
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     list_item: { 
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         marginVertical: 4,
         paddingLeft: 4,
     },
     bullet_list: { 
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         marginVertical: 8,
     },
     ordered_list: { 
-        color: '#e0e0e0',
+        color: Colors.dark.text,
         marginVertical: 8,
     },
     bullet: { 
-        color: '#87A987',
+        color: sageGreen,
     },
     tag: { 
-        color: '#87A987',
+        color: sageGreen,
     }
 };
