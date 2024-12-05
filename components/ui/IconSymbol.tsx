@@ -28,6 +28,8 @@ const MAPPING = {
   'doc.text': 'description',  // Added for file icon in recent section
   'refresh-ccw': 'sync',  // Quick sync icon
   'refresh-cw': 'autorenew',  // Full sync icon
+  'document-text-outline': 'description',  // Added for note icon in menu
+  'folder': 'folder',  // Added for folder icon in menu
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],

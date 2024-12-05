@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Pressable, View, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -10,9 +10,14 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { createNewNote } from '@/utils/fileSystem';
+import { createNewNote, createFolder } from '@/utils/fileSystem';
+import { Menu } from '@/components/ui/Menu';
+import { CreateFolderModal } from '@/components/CreateFolderModal';
 
 function NewNoteButton() {
+  const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const [isCreateFolderVisible, setIsCreateFolderVisible] = useState(false);
+
   const handleNewNote = async () => {
     try {
       const { filePath } = await createNewNote();
@@ -26,15 +31,48 @@ function NewNoteButton() {
     }
   };
 
+  const handleCreateFolder = async (folderName: string) => {
+    try {
+      const result = await createFolder(folderName);
+      if (result.success) {
+        // Close the modal
+        setIsCreateFolderVisible(false);
+        // Refresh the files list by navigating to index with a refresh parameter
+        router.push({
+          pathname: '/(tabs)',
+          params: { refresh: Date.now().toString() }
+        });
+      } else {
+        Alert.alert('Error', result.error || 'Failed to create folder');
+      }
+    } catch (error) {
+      console.error('Error creating folder:', error);
+      Alert.alert('Error', 'Failed to create folder');
+    }
+  };
+
   return (
     <View style={styles.newNoteContainer}>
-      <Pressable onPress={handleNewNote} style={styles.newNoteButton}>
+      <Pressable onPress={() => setIsMenuVisible(true)} style={styles.newNoteButton}>
         <IconSymbol
           size={Platform.select({ ios: 24, android: 28 })}
           name="plus"
           color="#fff"
         />
       </Pressable>
+      <Menu
+        visible={isMenuVisible}
+        onDismiss={() => setIsMenuVisible(false)}
+        items={[
+          { label: 'Note', icon: 'document-text-outline', onPress: handleNewNote },
+          { label: 'Folder', icon: 'folder', onPress: () => setIsCreateFolderVisible(true) }
+        ]}
+      />
+      <CreateFolderModal
+        isVisible={isCreateFolderVisible}
+        onClose={() => setIsCreateFolderVisible(false)}
+        onCreateFolder={handleCreateFolder}
+      />
     </View>
   );
 }

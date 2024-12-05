@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, View, SafeAreaView, Pressable, Alert, ScrollView, RefreshControl, Platform } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { FileTree } from '@/components/FileTree';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
@@ -29,6 +29,14 @@ export default function FilesScreen() {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [timeAgoText, setTimeAgoText] = useState<string>('');
   const [isRepoSetup, setIsRepoSetup] = useState<boolean>(false);
+  const { showFolderModal } = useLocalSearchParams<{ showFolderModal?: string }>();
+
+  useEffect(() => {
+    if (showFolderModal === 'true') {
+      // Clear the parameter after showing the modal
+      router.setParams({});
+    }
+  }, [showFolderModal]);
 
   const loadFiles = async () => {
     try {
@@ -229,9 +237,7 @@ export default function FilesScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ThemedView style={styles.container}>
-        {isLoading ? (
-          <ThemedText style={styles.loadingText}>Loading files...</ThemedText>
-        ) : !isRepoSetup ? (
+        {!isRepoSetup ? (
           <View style={styles.setupContainer}>
             <IconSymbol name="github" size={48} color="#87A987" />
             <ThemedText style={styles.setupTitle}>GitHub Repository Required</ThemedText>
@@ -366,19 +372,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  headerLeft: {
-    flex: 1,
-  },
-  headerRight: {
-    flex: 1,
+  headerButtons: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    gap: 12,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  iconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(135, 169, 135, 0.1)',
   },
   treeContainer: {
     flex: 1,

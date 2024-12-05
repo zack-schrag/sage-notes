@@ -249,13 +249,9 @@ export async function getDirectoryStructure(dir?: string): Promise<FileTreeItem[
           };
 
           if (info.isDirectory) {
-            // Recursively get children
-            const children = await getDirectoryStructure(path);
-            // Only include directory if it has markdown files in its tree
-            if (children.length > 0) {
-              item.children = children;
-              items.push(item);
-            }
+            // Always include directories and get their children
+            item.children = await getDirectoryStructure(path);
+            items.push(item);
           } else {
             // It's a markdown file, include it
             items.push(item);
@@ -389,4 +385,34 @@ export async function deleteItems(paths: string[]): Promise<boolean> {
     console.error('Error in deleteItems:', error);
     return false;
   }
+}
+
+export async function createFolder(folderName: string, parentPath?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { repoDir } = await getRepoInfo();
+        const fullPath = parentPath 
+            ? `${repoDir}/${parentPath}/${folderName}`
+            : `${repoDir}/${folderName}`;
+
+        // Check if folder already exists
+        const folderInfo = await FileSystem.getInfoAsync(fullPath);
+        if (folderInfo.exists) {
+            return { 
+                success: false, 
+                error: 'A folder with this name already exists' 
+            };
+        }
+
+        // Create the folder
+        await FileSystem.makeDirectoryAsync(fullPath, { intermediates: true });
+        console.log('Created folder:', fullPath);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error creating folder:', error);
+        return { 
+            success: false, 
+            error: 'Failed to create folder' 
+        };
+    }
 }
