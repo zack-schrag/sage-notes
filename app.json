@@ -27,7 +27,8 @@
         "backgroundColor": "#2a2a2a",
         "barStyle": "light-content",
         "translucent": false
-      }
+      },
+      "package": "com.schrag.sagenotes"
     },
     "web": {
       "bundler": "metro",
@@ -48,6 +49,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "0d84af8f-2c73-46aa-aaad-e37202feac67"
+      }
     }
   }
 }
